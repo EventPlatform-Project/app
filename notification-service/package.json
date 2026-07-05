@@ -1,0 +1,22 @@
+{
+  "name": "notification-service",
+  "version": "3.0.0",
+  "description": "Node.js notification microservice — receives user-created events from users-service via HTTP and broadcasts them live to the frontend via SSE.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "eureka-js-client": "^4.5.0",
+    "express": "^4.19.2",
+    "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  }
+}

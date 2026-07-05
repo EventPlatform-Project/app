@@ -1,0 +1,178 @@
+@import "tailwindcss";
+
+/* Enable class-based dark mode (.dark on <html>) */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ─── Runtime CSS variables — these change at runtime with the theme ──────── */
+:root {
+  /* Dark mode (default) */
+  --bg:       #09090E;
+  --surface:  #0F0F17;
+  --surface2: #14141E;
+  --surface3: #1A1A26;
+  --border:   #1E1E2E;
+  --border2:  #262636;
+
+  --text-primary:   #F1F5F9;
+  --text-secondary: #CBD5E1;
+  --text-muted:     #94A3B8;
+  --text-subtle:    #64748B;
+
+  --hover-bg:   rgba(255, 255, 255, 0.05);
+  --hover-bg2:  rgba(255, 255, 255, 0.08);
+  --hover-bg3:  rgba(255, 255, 255, 0.02);
+  --glass-bg:   rgba(255, 255, 255, 0.03);
+  --glass-border: rgba(255, 255, 255, 0.07);
+}
+
+html:not(.dark) {
+  /* Light mode overrides */
+  --bg:       #F8FAFC;
+  --surface:  #FFFFFF;
+  --surface2: #F1F5F9;
+  --surface3: #E8EDF3;
+  --border:   #E2E8F0;
+  --border2:  #CBD5E1;
+
+  --text-primary:   #0F172A;
+  --text-secondary: #1E293B;
+  --text-muted:     #475569;
+  --text-subtle:    #94A3B8;
+
+  --hover-bg:   rgba(0, 0, 0, 0.04);
+  --hover-bg2:  rgba(0, 0, 0, 0.07);
+  --hover-bg3:  rgba(0, 0, 0, 0.02);
+  --glass-bg:   rgba(0, 0, 0, 0.02);
+  --glass-border: rgba(0, 0, 0, 0.08);
+}
+
+/* ─── Map runtime vars to Tailwind tokens via @theme inline ────────────────── */
+/* @theme inline keeps these as var() references, not static hex values        */
+@theme inline {
+  --color-orbit-bg:       var(--bg);
+  --color-orbit-surface:  var(--surface);
+  --color-orbit-surface2: var(--surface2);
+  --color-orbit-surface3: var(--surface3);
+  --color-orbit-border:   var(--border);
+  --color-orbit-border2:  var(--border2);
+}
+
+/* ─── Fixed design tokens (never change between themes) ───────────────────── */
+@theme {
+  --font-family-sans: 'Inter', system-ui, -apple-system, sans-serif;
+
+  /* Primary — violet */
+  --color-orbit-primary:       #7C3AED;
+  --color-orbit-primary-light: #8B5CF6;
+  --color-orbit-primary-glow:  rgba(124, 58, 237, 0.25);
+
+  /* Accent — electric cyan */
+  --color-orbit-accent:       #06B6D4;
+  --color-orbit-accent-light: #22D3EE;
+  --color-orbit-accent-glow:  rgba(6, 182, 212, 0.2);
+
+  /* Semantic */
+  --color-orbit-success: #10B981;
+  --color-orbit-warning: #F59E0B;
+  --color-orbit-danger:  #EF4444;
+  --color-orbit-info:    #3B82F6;
+}
+
+/* ─── Global resets ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-family-sans);
+  background-color: var(--bg);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ─── Light mode text color overrides ──────────────────────────────────────── */
+/* Tailwind's @layer utilities is lower priority than unlayered CSS,            */
+/* so these naturally win without !important                                    */
+html:not(.dark) .text-slate-100,
+html:not(.dark) .text-slate-200 { color: var(--text-primary); }
+html:not(.dark) .text-slate-300  { color: var(--text-secondary); }
+html:not(.dark) .text-slate-400,
+html:not(.dark) .text-slate-500  { color: var(--text-muted); }
+html:not(.dark) .text-slate-600,
+html:not(.dark) .text-slate-700  { color: var(--text-subtle); }
+
+/* Placeholder colors in light mode */
+html:not(.dark) ::placeholder { color: var(--text-subtle); opacity: 1; }
+
+/* Scrollbar — adapts with theme */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--surface); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border2); filter: brightness(1.2); }
+
+/* ─── Utility classes ───────────────────────────────────────────────────────── */
+.glow-primary { box-shadow: 0 0 20px var(--color-orbit-primary-glow); }
+.glow-accent  { box-shadow: 0 0 20px var(--color-orbit-accent-glow); }
+
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, #8B5CF6, #06B6D4);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-border { position: relative; }
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.5), rgba(6, 182, 212, 0.5));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.orbit-glow-bg {
+  position: fixed;
+  top: -200px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 800px;
+  height: 600px;
+  background: radial-gradient(ellipse at center, rgba(124, 58, 237, 0.08) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+  transition: opacity 0.3s ease;
+}
+html:not(.dark) .orbit-glow-bg { opacity: 0.4; }
+
+/* ─── Light mode hover overrides ────────────────────────────────────────────── */
+/* bg-white/5 and similar transparent whites are invisible on light surfaces.   */
+/* These selectors override hover state backgrounds for light mode.             */
+html:not(.dark) .hover\:bg-white\/5:hover  { background-color: rgba(0, 0, 0, 0.05) !important; }
+html:not(.dark) .hover\:bg-white\/3:hover  { background-color: rgba(0, 0, 0, 0.03) !important; }
+html:not(.dark) .hover\:bg-white\/8:hover  { background-color: rgba(0, 0, 0, 0.06) !important; }
+html:not(.dark) .bg-white\/5  { background-color: rgba(0, 0, 0, 0.04) !important; }
+html:not(.dark) .bg-white\/3  { background-color: rgba(0, 0, 0, 0.02) !important; }
+
+/* Notification panel unread highlight */
+html:not(.dark) .bg-orbit-primary\/5 { background-color: rgba(124, 58, 237, 0.06) !important; }
+
+/* Sidebar border in light mode — make it a bit more visible */
+html:not(.dark) .border-orbit-border { border-color: var(--border); }
+
+/* Nav active indicator in light mode — make it readable */
+html:not(.dark) .bg-orbit-primary\/15 { background-color: rgba(124, 58, 237, 0.12) !important; }
+html:not(.dark) .bg-orbit-primary\/10 { background-color: rgba(124, 58, 237, 0.10) !important; }
