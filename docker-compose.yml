@@ -1,0 +1,46 @@
+version: '3.8'
+services:
+  # --- BASES DE DONNÉES ---
+  postgres-db:
+    image: postgres:16
+    ports: ["5432:5432"]
+    environment:
+      POSTGRES_PASSWORD: 12345
+
+  mysql-db:
+    image: mysql:8
+    ports: ["3306:3306"]
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+
+  mongodb-container:
+    image: mongo:latest
+    ports: ["27017:27017"]
+
+  # --- INFRASTRUCTURE ---
+  config-server:
+    build: ./config-server
+    ports: ["8889:8889"]
+    volumes: ["./config-repo:/config-repo"]
+
+  discovery-server:
+    build: ./discovery-server
+    ports: ["8761:8761"]
+    depends_on: [config-server]
+
+  # --- MICROSERVICES ---
+  notification-service:
+    build: ./notification-service
+    depends_on: [mongodb-container, discovery-server]
+    environment:
+      - MONGO_URI=mongodb://mongodb-container:27017/notifications_db
+      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/
+
+  api-gateway:
+    build: ./api-gateway
+    ports: ["8888:8888"]
+    depends_on: [discovery-server]
+
+  frontend:
+    build: ./frontend
+    ports: ["5173:80"] # On map le port 80 du container sur ton 5173 local
