@@ -43,4 +43,8 @@ services:
 
   frontend:
     build: ./frontend
-    ports: ["5173:80"] # On map le port 80 du container sur ton 5173 local
+    container_name: frontend-dev
+    ports:
+      - "5173:5173" # Port 5173 vers ton PC
+    environment:
+      - VITE_API_URL=http://localhost:8888 # L'adresse de ta gateway

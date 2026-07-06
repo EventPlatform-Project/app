@@ -1,11 +1,16 @@
-FROM node:18-alpine as build
+FROM node:18-alpine
+
 WORKDIR /app
+
+# Installation des dépendances
 COPY package*.json ./
 RUN npm install
-COPY . .
-RUN npm run build
 
-FROM nginx:stable-alpine
-COPY --from=build /app/dist /usr/share/nginx/html
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+# Copie du code
+COPY . .
+
+# On expose le port par défaut de Vite (5173)
+EXPOSE 5173
+
+# Commande pour lancer le mode dev (on ajoute --host pour que Docker accepte les connexions)
+CMD ["npm", "run", "dev", "--", "--host"]
