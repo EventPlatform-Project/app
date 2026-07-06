@@ -3,108 +3,26 @@ import {
   Calendar,
   ClipboardList,
   Users,
-  Tag,
   CheckCircle2,
   XCircle,
   Clock,
   Ticket,
-  ChevronRight,
   ArrowLeft,
   Hash,
   MapPin,
-  Star,
   AlertCircle,
   BadgeCheck,
   RefreshCw,
 } from 'lucide-react'
 import { eventService } from '@/services/eventService'
-import { userService, type UserSummary } from '@/services/userService'
+import { userService, type UserSummary, type UserProfile } from '@/services/userService'
+import { reservationService, type ReservationResponse } from '@/services/reservationService'
+import { useAuth } from '@/auth/AuthContext'
 import type { Event } from '@/types/event'
-
-// ─── Backup static data for testing (in case backend is offline) ──────────────
-
-const BACKUP_EVENTS = [
-  {
-    id: 1,
-    title: 'React Summit 2025 [Test]',
-    description: 'La plus grande conférence React en Afrique du Nord. Workshops, talks et networking.',
-    category: 'Technologie',
-    maxPlaces: 200,
-    availablePlaces: 45,
-    status: 'ACTIVE',
-    organizerId: 'feten-id',
-    schedules: [{ date: '2025-09-15', room: 'Amphi Tunis', startTime: '09:00', endTime: '18:00', speaker: 'Feten Ben Ali' }],
-  },
-  {
-    id: 2,
-    title: 'Workshop Docker & Kubernetes [Test]',
-    description: 'Formation intensive sur la conteneurisation et l\'orchestration pour les équipes DevOps.',
-    category: 'Formation',
-    maxPlaces: 30,
-    availablePlaces: 8,
-    status: 'ACTIVE',
-    organizerId: 'bedis-id',
-    schedules: [{ date: '2025-08-22', room: 'Salle 204 Sfax', startTime: '09:00', endTime: '17:00', speaker: 'Bedis Karray' }],
-  },
-  {
-    id: 3,
-    title: 'Hackathon IA & Innovation [Test]',
-    description: '48h de code intensif autour de l\'intelligence artificielle et du machine learning.',
-    category: 'Atelier',
-    maxPlaces: 100,
-    availablePlaces: 0,
-    status: 'COMPLET',
-    organizerId: 'rawen-id',
-    schedules: [{ date: '2025-10-05', room: 'Technopole Sousse', startTime: '10:00', endTime: '22:00', speaker: 'Rawen Jlassi' }],
-  },
-]
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type ReservationStatus = 'PENDING' | 'CONFIRMED' | 'CANCELLED'
-
-interface Reservation {
-  id: number
-  eventId: number
-  eventTitle: string
-  eventDate: string
-  eventLocation: string
-  userId: number
-  userName: string
-  reservationDate: string
-  status: ReservationStatus
-}
-
-// ─── Static reservations list (pre-populated) ─────────────────────────────────
-let nextResId = 10
-const INITIAL_RESERVATIONS: Reservation[] = [
-  {
-    id: 1,
-    eventId: 1,
-    eventTitle: 'React Summit 2025 [Test]',
-    eventDate: '2025-09-15',
-    eventLocation: 'Amphi Tunis',
-    userId: 42,
-    userName: 'Farah Mansouri',
-    reservationDate: '2025-07-01',
-    status: 'CONFIRMED',
-  },
-  {
-    id: 2,
-    eventId: 2,
-    eventTitle: 'Workshop Docker & Kubernetes [Test]',
-    eventDate: '2025-08-22',
-    eventLocation: 'Salle 204 Sfax',
-    userId: 42,
-    userName: 'Farah Mansouri',
-    reservationDate: '2025-07-03',
-    status: 'PENDING',
-  },
-]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const STATUS_META: Record<ReservationStatus, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
+const STATUS_META: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
   PENDING: {
     label: 'En attente',
     color: 'text-amber-400',
@@ -129,7 +47,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   Technologie: 'bg-violet-500/10 text-violet-400',
   Formation: 'bg-blue-500/10 text-blue-400',
   Atelier: 'bg-cyan-500/10 text-cyan-400',
-  Conférence: 'bg-orange-500/10 text-orange-400',
+  Conférence: 'bg-orbit-primary/10 text-orbit-primary-light',
   Networking: 'bg-pink-500/10 text-pink-400',
 }
 
@@ -147,27 +65,47 @@ function formatDate(d: string) {
 type View = 'events' | 'reservations'
 
 export default function ReservationsPage() {
+  const { user, hasRole } = useAuth()
   const [view, setView] = useState<View>('events')
-  const [reservations, setReservations] = useState<Reservation[]>(INITIAL_RESERVATIONS)
+  const [reservations, setReservations] = useState<ReservationResponse[]>([])
 
   // Real data state
   const [events, setEvents] = useState<Event[]>([])
   const [organizers, setOrganizers] = useState<UserSummary[]>([])
+  const [users, setUsers] = useState<UserProfile[]>([])
   const [loading, setLoading] = useState(true)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  const [usingFallback, setUsingFallback] = useState(false)
 
   // Reserve modal state
   const [reservingEventId, setReservingEventId] = useState<number | null>(null)
-  const [reserveEventIdInput, setReserveEventIdInput] = useState('')
   const [reserveSuccess, setReserveSuccess] = useState<string | null>(null)
   const [reserveError, setReserveError] = useState<string | null>(null)
 
   // ── Fetch real data from microservices ──────────────────────────────────────
+  const fetchReservations = async () => {
+    if (!user?.id) return
+    try {
+      let data: ReservationResponse[] = []
+      if (hasRole('ADMINISTRATEUR')) {
+        try {
+          data = await reservationService.getAllReservations()
+        } catch (err) {
+          console.warn('Failed to fetch all reservations, falling back to user reservations:', err)
+          data = await reservationService.getReservationsByUser(user.id)
+        }
+      } else {
+        data = await reservationService.getReservationsByUser(user.id)
+      }
+      setReservations(data)
+    } catch (err) {
+      console.error('Erreur lors du chargement des réservations :', err)
+      setErrorMsg(prev => prev ?? 'Impossible de charger les réservations.')
+    }
+  }
+
   const loadRealData = async () => {
     setLoading(true)
     setErrorMsg(null)
-    setUsingFallback(false)
     try {
       // 1. Fetch organizers list (users-service)
       try {
@@ -180,11 +118,23 @@ export default function ReservationsPage() {
       // 2. Fetch all events (events-service)
       const realEvents = await eventService.getAllEvents()
       setEvents(realEvents)
+
+      // 3. Fetch all users if admin (for mapping user names in reservations)
+      if (hasRole('ADMINISTRATEUR')) {
+        try {
+          const allUsers = await userService.getAllUsers()
+          setUsers(allUsers)
+        } catch (err) {
+          console.warn('Could not load users list:', err)
+        }
+      }
+
+      // 4. Fetch reservations
+      await fetchReservations()
     } catch (err) {
       console.error('Could not fetch events from gateway/backend:', err)
-      setErrorMsg('Impossible de charger les événements réels du backend. Chargement des données de test.')
-      setUsingFallback(true)
-      setEvents(BACKUP_EVENTS as Event[])
+      setErrorMsg('Impossible de charger les données réelles du backend.')
+      setEvents([])
     } finally {
       setLoading(false)
     }
@@ -192,7 +142,7 @@ export default function ReservationsPage() {
 
   useEffect(() => {
     loadRealData()
-  }, [])
+  }, [user?.id])
 
   // Create lookup for organizers names
   const organizerMap = useMemo(() => {
@@ -204,23 +154,27 @@ export default function ReservationsPage() {
     return map
   }, [organizers])
 
+  // Create lookup for users names
+  const userMap = useMemo(() => {
+    const map = new Map<string, string>()
+    users.forEach((u) => {
+      const name = `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim()
+      map.set(u.id, name || u.username)
+    })
+    return map
+  }, [users])
+
   // ── Reserve action ──────────────────────────────────────────────────────────
   const handleReserve = (event: Event) => {
     if (!event.id) return
     if (event.status !== 'ACTIVE' || event.availablePlaces === 0) return
     setReservingEventId(event.id)
-    setReserveEventIdInput(String(event.id))
     setReserveSuccess(null)
     setReserveError(null)
   }
 
-  const confirmReservation = (event: Event) => {
+  const confirmReservation = async (event: Event) => {
     if (!event.id) return
-    const idNum = parseInt(reserveEventIdInput, 10)
-    if (isNaN(idNum) || idNum !== event.id) {
-      setReserveError("L'ID de l'événement ne correspond pas. Veuillez vérifier.")
-      return
-    }
 
     const alreadyReserved = reservations.some(
       (r) => r.eventId === event.id && r.status !== 'CANCELLED',
@@ -230,41 +184,48 @@ export default function ReservationsPage() {
       return
     }
 
-    // Schedule extraction
-    const firstSchedule = event.schedules && event.schedules.length > 0 ? event.schedules[0] : null
-    const eventDate = firstSchedule?.date ?? 'N/A'
-    const eventLocation = firstSchedule?.room ?? 'À définir'
-
-    const newReservation: Reservation = {
-      id: nextResId++,
-      eventId: event.id,
-      eventTitle: event.title,
-      eventDate: eventDate,
-      eventLocation: eventLocation,
-      userId: 42,
-      userName: 'Farah Mansouri',
-      reservationDate: new Date().toISOString().split('T')[0],
-      status: 'PENDING',
-    }
-    setReservations((prev) => [newReservation, ...prev])
-    setReserveSuccess(`Réservation créée avec succès pour « ${event.title} » ! (ID: ${newReservation.id})`)
-    setReserveError(null)
-    setTimeout(() => {
-      setReservingEventId(null)
+    try {
       setReserveSuccess(null)
-    }, 2500)
+      setReserveError(null)
+      const newRes = await reservationService.createReservation({ eventId: event.id })
+      setReserveSuccess(`Réservation créée avec succès ! (ID: ${newRes.id})`)
+      
+      // Refresh data
+      await fetchReservations()
+      const realEvents = await eventService.getAllEvents()
+      setEvents(realEvents)
+
+      setTimeout(() => {
+        setReservingEventId(null)
+        setReserveSuccess(null)
+      }, 2500)
+    } catch (err: any) {
+      console.error('Erreur lors de la création de la réservation :', err)
+      const message = err.response?.data?.message || err.message || 'Erreur lors de la réservation.'
+      setReserveError(message)
+    }
   }
 
-  const cancelReservation = (id: number) => {
-    setReservations((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, status: 'CANCELLED' } : r)),
-    )
+  const handleCancelReservation = async (id: number) => {
+    try {
+      await reservationService.cancelReservation(id)
+      await fetchReservations()
+      const realEvents = await eventService.getAllEvents()
+      setEvents(realEvents)
+    } catch (err: any) {
+      console.error("Erreur lors de l'annulation de la réservation :", err)
+      setErrorMsg("Impossible d'annuler la réservation.")
+    }
   }
 
-  const acceptReservation = (id: number) => {
-    setReservations((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, status: 'CONFIRMED' } : r)),
-    )
+  const handleAcceptReservation = async (id: number) => {
+    try {
+      await reservationService.confirmReservation(id)
+      await fetchReservations()
+    } catch (err: any) {
+      console.error("Erreur lors de la confirmation de la réservation :", err)
+      setErrorMsg("Impossible d'accepter la réservation.")
+    }
   }
 
   return (
@@ -274,7 +235,7 @@ export default function ReservationsPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
             <ClipboardList className="text-orbit-primary" />
-            Réservations — Farah
+            Réservations
           </h1>
           <p className="text-slate-400 mt-1 text-sm">
             {view === 'events'
@@ -327,10 +288,10 @@ export default function ReservationsPage() {
 
       {/* ── NOTIFICATIONS / ERROR MESSAGES ─────────────────────────────────── */}
       {errorMsg && (
-        <div className="mb-6 flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded-xl p-4 text-sm max-w-4xl">
+        <div className="mb-6 flex items-start gap-3 bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl p-4 text-sm max-w-4xl">
           <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
           <div>
-            <p className="font-semibold">Note de Test</p>
+            <p className="font-semibold">Erreur</p>
             <p className="text-slate-300 mt-0.5">{errorMsg}</p>
           </div>
         </div>
@@ -346,11 +307,6 @@ export default function ReservationsPage() {
                 Liste des événements {loading ? '...' : `(${events.length})`}
               </span>
             </div>
-            {usingFallback && (
-              <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md">
-                Données locales
-              </span>
-            )}
           </div>
 
           {loading ? (
@@ -540,28 +496,23 @@ export default function ReservationsPage() {
                               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                                 <div className="flex items-center gap-3">
                                   <div className="w-8 h-8 rounded-lg bg-orbit-primary/20 flex items-center justify-center">
-                                    <Hash size={16} className="text-orbit-primary-light" />
+                                    <Ticket size={16} className="text-orbit-primary-light" />
                                   </div>
                                   <div>
                                     <p className="text-xs text-slate-400 mb-1">
-                                      Confirmez l'ID de l'événement pour réserver
+                                      Voulez-vous réserver une place pour l'événement ?
                                     </p>
                                     <div className="flex items-center gap-2">
-                                      <input
-                                        id={`event-id-input-${event.id}`}
-                                        type="number"
-                                        value={reserveEventIdInput}
-                                        onChange={(e) => setReserveEventIdInput(e.target.value)}
-                                        placeholder="ID événement"
-                                        className="w-32 bg-slate-900 border border-slate-700 px-3 py-2 rounded-lg text-white text-sm outline-none focus:border-orbit-primary font-mono"
-                                      />
+                                      <span className="text-sm font-semibold text-slate-200 mr-2">
+                                        « {event.title} » (ID: {event.id})
+                                      </span>
                                       <button
                                         id={`confirm-reserve-btn-${event.id}`}
                                         onClick={() => confirmReservation(event)}
                                         className="flex items-center gap-2 px-4 py-2 rounded-lg bg-orbit-primary text-white text-sm font-bold hover:bg-orbit-primary-light transition-all shadow hover:shadow-orbit-primary/30"
                                       >
                                         <CheckCircle2 size={15} />
-                                        Confirmer
+                                        Confirmer la réservation
                                       </button>
                                     </div>
                                   </div>
@@ -617,7 +568,7 @@ export default function ReservationsPage() {
                   </p>
                 </div>
                 <div className={`${color} opacity-60`}>
-                  {STATUS_META[status].icon && (
+                  {STATUS_META[status]?.icon && (
                     <span className="scale-150 block">
                       {status === 'PENDING' ? <Clock size={22} /> : status === 'CONFIRMED' ? <BadgeCheck size={22} /> : <XCircle size={22} />}
                     </span>
@@ -657,7 +608,26 @@ export default function ReservationsPage() {
                   </thead>
                   <tbody>
                     {reservations.map((res, idx) => {
-                      const meta = STATUS_META[res.status]
+                      const meta = STATUS_META[res.status] ?? {
+                        label: res.status,
+                        color: 'text-slate-400',
+                        bg: 'bg-slate-700/10 border-slate-600/30',
+                        icon: <Clock size={14} />,
+                      }
+
+                      // Dynamic lookup for event details
+                      const event = events.find(e => e.id === res.eventId)
+                      const eventTitle = event ? event.title : `Événement #${res.eventId}`
+                      const firstSchedule = event?.schedules && event.schedules.length > 0 ? event.schedules[0] : null
+                      const eventDate = firstSchedule?.date ?? 'N/A'
+                      const eventLocation = firstSchedule?.room ?? 'À définir'
+
+                      // Dynamic lookup for user names
+                      const isMe = user && String(res.userId) === String(user.id)
+                      const userName = isMe
+                        ? `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || user.username
+                        : userMap.get(String(res.userId)) ?? `Utilisateur (${res.userId})`
+
                       return (
                         <tr
                           key={res.id}
@@ -675,13 +645,13 @@ export default function ReservationsPage() {
 
                           {/* Event info */}
                           <td className="px-6 py-4">
-                            <p className="font-semibold text-slate-100">{res.eventTitle}</p>
+                            <p className="font-semibold text-slate-100">{eventTitle}</p>
                             <p className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1">
                               <Calendar size={10} />
-                              {formatDate(res.eventDate)}
+                              {formatDate(eventDate)}
                               <span className="mx-1">·</span>
                               <MapPin size={10} />
-                              {res.eventLocation}
+                              {eventLocation}
                             </p>
                           </td>
 
@@ -696,10 +666,10 @@ export default function ReservationsPage() {
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-2">
                               <div className="w-7 h-7 rounded-full bg-gradient-to-br from-orbit-primary to-orbit-accent flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
-                                {res.userName.charAt(0)}
+                                {userName.charAt(0)}
                               </div>
                               <div>
-                                <p className="text-xs text-slate-200 font-medium">{res.userName}</p>
+                                <p className="text-xs text-slate-200 font-medium">{userName}</p>
                                 <p className="text-[10px] text-slate-600 font-mono">ID: {res.userId}</p>
                               </div>
                             </div>
@@ -726,7 +696,7 @@ export default function ReservationsPage() {
                               {res.status !== 'CONFIRMED' && res.status !== 'CANCELLED' && (
                                 <button
                                   id={`accept-res-${res.id}`}
-                                  onClick={() => acceptReservation(res.id)}
+                                  onClick={() => handleAcceptReservation(res.id)}
                                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 transition-all hover:scale-105"
                                   title="Accepter la réservation"
                                 >
@@ -737,7 +707,7 @@ export default function ReservationsPage() {
                               {res.status !== 'CANCELLED' && (
                                 <button
                                   id={`cancel-res-${res.id}`}
-                                  onClick={() => cancelReservation(res.id)}
+                                  onClick={() => handleCancelReservation(res.id)}
                                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20 transition-all hover:scale-105"
                                   title="Annuler la réservation"
                                 >

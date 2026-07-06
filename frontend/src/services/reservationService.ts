@@ -2,13 +2,13 @@ import api from '@/lib/api'
 
 export interface CreateReservationRequest {
   eventId: number
-  userId?: number
+  userId?: string | number
 }
 
 export interface ReservationResponse {
   id: number
   eventId: number
-  userId: number
+  userId: string | number
   reservationDate: string
   status: 'PENDING' | 'CONFIRMED' | 'CANCELLED' | string
 }
@@ -22,8 +22,14 @@ export const reservationService = {
     return response.data
   },
 
+  // Récupérer toutes les réservations
+  getAllReservations: async (): Promise<ReservationResponse[]> => {
+    const response = await api.get<ReservationResponse[]>(RESERVATIONS)
+    return response.data
+  },
+
   // Récupérer les réservations d'un utilisateur
-  getReservationsByUser: async (userId: number): Promise<ReservationResponse[]> => {
+  getReservationsByUser: async (userId: string | number): Promise<ReservationResponse[]> => {
     const response = await api.get<ReservationResponse[]>(`${RESERVATIONS}/user/${userId}`)
     return response.data
   },
