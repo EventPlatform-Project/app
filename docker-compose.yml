@@ -1,50 +1,170 @@
-version: '3.8'
 services:
   # --- BASES DE DONNÉES ---
   postgres-db:
     image: postgres:16
-    ports: ["5432:5432"]
+    container_name: postgres-db
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_PASSWORD: 12345
+    volumes:
+      - ./postgres-init:/docker-entrypoint-initdb.d
+    restart: always
 
   mysql-db:
     image: mysql:8
-    ports: ["3306:3306"]
+    container_name: mysql-db
+    ports:
+      - "3306:3306"
     environment:
       MYSQL_ROOT_PASSWORD: root
+    restart: always
 
   mongodb-container:
     image: mongo:latest
-    ports: ["27017:27017"]
+    container_name: mongodb-container
+    ports:
+      - "27017:27017"
+    restart: always
+
+  # --- KEYCLOAK ---
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    container_name: keycloak
+    command: start-dev
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HTTP_PORT: 8180
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_URL: http://localhost:8180
+    ports:
+      - "8180:8180"
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+    restart: always
 
   # --- INFRASTRUCTURE ---
   config-server:
     build: ./config-server
-    ports: ["8889:8889"]
-    volumes: ["./config-repo:/config-repo"]
+    container_name: config-server
+    ports:
+      - "8889:8889"
+    volumes:
+      - ./config-repo:/config-repo
+    environment:
+      SPRING_PROFILES_ACTIVE: native
+      EUREKA_HOST: discovery-server
+      CONFIG_LOCATION: file:/config-repo
+    restart: always
 
   discovery-server:
     build: ./discovery-server
-    ports: ["8761:8761"]
-    depends_on: [config-server]
+    container_name: discovery-server
+    ports:
+      - "8761:8761"
+    depends_on:
+      - config-server
+    environment:
+      EUREKA_HOSTNAME: discovery-server
+      CONFIG_SERVER_URL: http://config-server:8889
+    restart: always
 
   # --- MICROSERVICES ---
-  notification-service:
-    build: ./notification-service
-    depends_on: [mongodb-container, discovery-server]
-    environment:
-      - MONGO_URI=mongodb://mongodb-container:27017/notifications_db
-      - EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://discovery-server:8761/eureka/
-
   api-gateway:
     build: ./api-gateway
-    ports: ["8888:8888"]
-    depends_on: [discovery-server]
+    container_name: api-gateway
+    ports:
+      - "8888:8888"
+    depends_on:
+      - discovery-server
+      - keycloak
+    environment:
+      CONFIG_SERVER_URL: http://config-server:8889
+      EUREKA_HOST: discovery-server
+      KEYCLOAK_HOST: keycloak
+    restart: on-failure
 
+  users-service:
+    build: ./users
+    container_name: users-service
+    depends_on:
+      - discovery-server
+      - postgres-db
+      - keycloak
+    environment:
+      CONFIG_SERVER_URL: http://config-server:8889
+      EUREKA_HOST: discovery-server
+      POSTGRES_HOST: postgres-db
+      KEYCLOAK_HOST: keycloak
+    restart: on-failure
+
+  ms-event:
+    build: ./ms-Event
+    container_name: ms-event
+    depends_on:
+      - discovery-server
+      - mysql-db
+      - keycloak
+    environment:
+      CONFIG_SERVER_URL: http://config-server:8889
+      EUREKA_HOST: discovery-server
+      MYSQL_HOST: mysql-db
+      MYSQL_PASSWORD: root
+      KEYCLOAK_HOST: keycloak
+    restart: on-failure
+
+  ms-reservation:
+    build: ./ms-Reservation
+    container_name: ms-reservation
+    depends_on:
+      - discovery-server
+      - postgres-db
+      - keycloak
+    environment:
+      CONFIG_SERVER_URL: http://config-server:8889
+      EUREKA_HOST: discovery-server
+      POSTGRES_HOST: postgres-db
+      KEYCLOAK_HOST: keycloak
+    restart: on-failure
+
+  ticket-service:
+    build: ./ticket-service
+    container_name: ticket-service
+    depends_on:
+      - discovery-server
+      - postgres-db
+      - keycloak
+    environment:
+      CONFIG_SERVER_URL: http://config-server:8889
+      EUREKA_HOST: discovery-server
+      POSTGRES_HOST: postgres-db
+      KEYCLOAK_HOST: keycloak
+    restart: on-failure
+
+  notification-service:
+    build: ./notification-service
+    container_name: notification-service
+    depends_on:
+      - mongodb-container
+      - discovery-server
+    environment:
+      CONFIG_SERVER_URL: http://config-server:8889
+      EUREKA_HOST: discovery-server
+      MONGO_URI: mongodb://mongodb-container:27017/notifications_db
+    restart: on-failure
+
+  # --- FRONTEND ---
   frontend:
     build: ./frontend
     container_name: frontend-dev
     ports:
-      - "5173:5173" # Port 5173 vers ton PC
+      - "5173:5173"
+    stdin_open: true
+    tty: true
     environment:
-      - VITE_API_URL=http://localhost:8888 # L'adresse de ta gateway
+      VITE_API_URL: http://localhost:8888
+    restart: always
+
+volumes:
+  keycloak_data:

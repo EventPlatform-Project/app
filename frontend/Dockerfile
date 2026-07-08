@@ -1,16 +1,17 @@
-FROM node:18-alpine
+FROM node:20
 
 WORKDIR /app
 
-# Installation des dépendances
-COPY package*.json ./
+# On copie le package.json
+COPY package.json ./
+
+# On installe les dépendances proprement sous Linux
 RUN npm install
 
-# Copie du code
+# On copie le reste du code
 COPY . .
 
-# On expose le port par défaut de Vite (5173)
 EXPOSE 5173
 
-# Commande pour lancer le mode dev (on ajoute --host pour que Docker accepte les connexions)
-CMD ["npm", "run", "dev", "--", "--host"]
+# On lance Vite
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
