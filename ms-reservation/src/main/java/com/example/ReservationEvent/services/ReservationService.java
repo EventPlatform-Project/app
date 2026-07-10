@@ -29,9 +29,6 @@ public class ReservationService {
                 .toList();
     }
 
-    /**
-     * Crée une nouvelle réservation via OpenFeign
-     */
     @Transactional
     public ReservationResponse createReservation(CreateReservationRequest request) {
         // 1. Vérifier l'événement via ms-event
@@ -55,19 +52,7 @@ public class ReservationService {
 
         Reservation saved = reservationRepository.save(reservation);
 
-        // 3. Décrémenter les places disponibles de l'événement (best-effort).
-        //    En cas d'échec la réservation reste enregistrée mais le nombre
-        //    de places n'est pas mis à jour — l'opération sera loguée.
-        try {
-            eventClient.decrementPlaces(saved.getEventId(), 1);
-        } catch (Exception ex) {
-            // Ne pas casser la création de réservation pour un problème de mise à jour.
-            org.slf4j.LoggerFactory.getLogger(ReservationService.class)
-                .warn("Failed to decrement availablePlaces for event {}: {}",
-                    saved.getEventId(), ex.getMessage());
-        }
-
-        // 4. Publier l'événement RESERVATION_CREATED (fire-and-forget).
+        // 3. Publier l'événement RESERVATION_CREATED (fire-and-forget).
         // If RabbitMQ is momentarily down, the reservation is still persisted.
         eventPublisher.publishReservationCreated(saved);
 
@@ -111,4 +96,5 @@ public class ReservationService {
 
         return ReservationResponse.fromEntity(reservationRepository.save(reservation));
     }
+
 }
