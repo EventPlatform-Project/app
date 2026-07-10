@@ -29,12 +29,7 @@ export default function App() {
       <Route path="/sign-up" element={<SignUpPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
-      {/* 2. Public application routes — with sidebar, no Keycloak auth required */}
-      <Route element={<Layout />}>
-        <Route path="/reservations" element={<ReservationsPage />} />
-      </Route>
-
-      {/* 3. Application routes — with sidebar, protected by Keycloak */}
+      {/* 2. Application routes — with sidebar, protected by Keycloak */}
       <Route
         element={
           <ProtectedRoute>
@@ -45,6 +40,7 @@ export default function App() {
         <Route path="/" element={<Navigate to="/welcome" replace />} />
         <Route path="/welcome" element={<WelcomePage />} />
         <Route path="/events" element={<EventsPage />} />
+        <Route path="/reservations" element={<ReservationsPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
 
         {/* Requires authentication only */}

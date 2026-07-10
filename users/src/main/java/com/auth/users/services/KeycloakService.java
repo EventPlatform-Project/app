@@ -41,11 +41,33 @@ public class KeycloakService {
     @Value("${keycloak.admin.password}")
     private String adminPassword;
 
+    // ---- Admin-token cache -------------------------------------------------
+    // Keycloak admin tokens are short-lived (usually 60s). Fetching one per
+    // request means every user-create hits Keycloak 3+ times. We cache the
+    // token in memory and refresh it a bit before it expires. If Keycloak
+    // returns 401 mid-request the caller can force-refresh via getAdminToken.
+    private volatile String cachedAdminToken;
+    private volatile long cachedAdminTokenExpiresAt; // epoch millis
+    private static final long TOKEN_REFRESH_SKEW_MS = 15_000; // renew 15s early
+
     /**
      * Get Admin/Client Token to make Admin REST API calls.
      * We try client credentials flow first, fallback to password flow for admin user.
+     * Cached in memory to avoid hammering Keycloak on every request.
      */
-    public String getAdminToken() {
+    public synchronized String getAdminToken() {
+        long now = System.currentTimeMillis();
+        if (cachedAdminToken != null && now < cachedAdminTokenExpiresAt - TOKEN_REFRESH_SKEW_MS) {
+            return cachedAdminToken;
+        }
+        String fresh = fetchAdminToken();
+        cachedAdminToken = fresh;
+        // Default Keycloak admin token = 60s. We cache for 55s to be safe.
+        cachedAdminTokenExpiresAt = now + 60_000L;
+        return fresh;
+    }
+
+    private String fetchAdminToken() {
         String tokenUrl = authServerUrl + "/realms/master/protocol/openid-connect/token";
         
         HttpHeaders headers = new HttpHeaders();

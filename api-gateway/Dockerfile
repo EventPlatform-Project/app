@@ -11,7 +11,9 @@ RUN mvn -B -q -e -DskipTests dependency:go-offline
 
 COPY src ./src
 RUN mvn -B -q -e -DskipTests package \
- && cp target/*.jar /workspace/app.jar
+ && jar=$(ls target/*.jar 2>/dev/null | grep -v -E '\-plain\.jar$|\.jar\.original$' | head -1) \
+ && test -n "$jar" \
+ && cp "$jar" /workspace/app.jar
 
 # ---- Runtime stage ----
 FROM eclipse-temurin:17-jre-alpine
