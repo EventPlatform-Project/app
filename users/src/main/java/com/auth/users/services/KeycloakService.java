@@ -178,6 +178,34 @@ public class KeycloakService {
     }
 
     /**
+     * Delete a user from Keycloak by ID.
+     * <p>
+     * Returns silently if the user does not exist (404 from Keycloak), so
+     * this method is idempotent from the caller's point of view.
+     *
+     * @param userId the Keycloak user ID (same as the local {@code UserEntity.id}).
+     */
+    public void deleteUser(String userId) {
+        String adminToken = getAdminToken();
+        String url = authServerUrl + "/admin/realms/" + realm + "/users/" + userId;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(adminToken);
+        HttpEntity<Void> requestEntity = new HttpEntity<>(headers);
+
+        try {
+            restTemplate.exchange(url, HttpMethod.DELETE, requestEntity, Void.class);
+            log.info("Deleted Keycloak user {}", userId);
+        } catch (HttpClientErrorException.NotFound e) {
+            log.warn("Keycloak user {} not found (already deleted?)", userId);
+        } catch (HttpClientErrorException e) {
+            log.error("Failed to delete Keycloak user {}: {} - {}",
+                    userId, e.getStatusCode(), e.getResponseBodyAsString());
+            throw new RuntimeException("Failed to delete user in Keycloak: " + e.getStatusCode());
+        }
+    }
+
+    /**
      * Authenticate user credentials directly with Keycloak.
      */
     public LoginResponse authenticate(LoginRequest loginRequest) {

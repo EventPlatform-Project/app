@@ -13,6 +13,7 @@ import EventsPage from '@/pages/events/EventsPage'
 import ReservationsPage from '@/pages/reservations/ReservationsPage'
 import ProfilePage from '@/pages/profile/ProfilePage'
 import AdminPage from '@/pages/admin/AdminPage'
+import NotificationsPage from '@/pages/notifications/NotificationsPage'
 import ForbiddenPage from '@/pages/ForbiddenPage'
 
 // Utility template pages
@@ -44,6 +45,7 @@ export default function App() {
         <Route path="/" element={<Navigate to="/welcome" replace />} />
         <Route path="/welcome" element={<WelcomePage />} />
         <Route path="/events" element={<EventsPage />} />
+        <Route path="/notifications" element={<NotificationsPage />} />
 
         {/* Requires authentication only */}
         <Route path="/profile" element={<ProfilePage />} />

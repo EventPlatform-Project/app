@@ -99,6 +99,41 @@ public class UserService {
         return mapToProfileResponse(user);
     }
 
+    /**
+     * Admin-only: delete a user from both Keycloak and the local DB, then
+     * publish a {@code USER_DELETED} event to RabbitMQ so the notification
+     * service can broadcast it to connected frontends.
+     * <p>
+     * Order of operations:
+     * <ol>
+     *   <li>Load the local record (so we still have a snapshot for the event).</li>
+     *   <li>Delete from Keycloak first (external side-effect that could fail).</li>
+     *   <li>Delete from the local Postgres table.</li>
+     *   <li>Publish {@code USER_DELETED} asynchronously.</li>
+     * </ol>
+     * If Keycloak deletion fails, we abort and keep the local row intact.
+     *
+     * @param userId Keycloak user id (== local {@code UserEntity.id}).
+     * @throws RuntimeException if the user does not exist locally.
+     */
+    @Transactional
+    public void deleteUser(String userId) {
+        UserEntity user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+
+        // 1. Remove from Keycloak first — this is the "hard" step. If it fails,
+        //    we don't want to be left with a local record and no Keycloak account.
+        keycloakService.deleteUser(userId);
+
+        // 2. Remove locally.
+        userRepository.delete(user);
+        log.info("Deleted user id={} username={} role={}",
+                user.getId(), user.getUsername(), user.getRole());
+
+        // 3. Broadcast the deletion (fire-and-forget).
+        userEventPublisher.publishUserDeleted(user);
+    }
+
     @Transactional
     public UserProfileResponse updateUserProfile(String userId, UserUpdateRequest updateRequest) {
         UserEntity user = userRepository.findById(userId)

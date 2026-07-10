@@ -27,6 +27,23 @@ services:
       - "27017:27017"
     restart: always
 
+  # --- MESSAGE BROKER ---
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"      # AMQP protocol
+      - "15672:15672"    # Management UI (http://localhost:15672  guest/guest)
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: always
+
   # --- KEYCLOAK ---
   keycloak:
     image: quay.io/keycloak/keycloak:24.0
@@ -92,11 +109,16 @@ services:
       - discovery-server
       - postgres-db
       - keycloak
+      - rabbitmq
     environment:
       CONFIG_SERVER_URL: http://config-server:8889
       EUREKA_HOST: discovery-server
       POSTGRES_HOST: postgres-db
       KEYCLOAK_HOST: keycloak
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest
     restart: on-failure
 
   ms-event:
@@ -146,12 +168,21 @@ services:
     build: ./notification-service
     container_name: notification-service
     depends_on:
-      - mongodb-container
+      - config-server
       - discovery-server
+      - mongodb-container
+      - rabbitmq
     environment:
+      # Bootstrap: only these are set here; everything else comes from
+      # config-server (config-repo/notification-service.properties).
       CONFIG_SERVER_URL: http://config-server:8889
       EUREKA_HOST: discovery-server
-      MONGO_URI: mongodb://mongodb-container:27017/notifications_db
+      MONGO_HOST: mongodb-container
+      RABBITMQ_HOST: rabbitmq
+      # Advertise this DNS name to Eureka so other containers can reach us.
+      NOTIFICATION_INSTANCE_HOST: notification-service
+    ports:
+      - "9000:9000"
     restart: on-failure
 
   # --- FRONTEND ---

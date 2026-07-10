@@ -64,6 +64,16 @@ export const userService = {
   },
 
   /**
+   * Admin-only: delete a user from Keycloak + local DB.
+   * The backend publishes a `USER_DELETED` event to RabbitMQ, which the
+   * notification-service consumes and broadcasts to all connected frontends
+   * (bell dropdown + `/notifications` page).
+   */
+  deleteUser: async (userId: string): Promise<void> => {
+    await api.delete(`${USERS}/${userId}`)
+  },
+
+  /**
    * Lightweight list of users allowed to organize events (ORGANISATEUR + ADMINISTRATEUR).
    * Accessible to any authenticated user; used to populate the organizer picker
    * when creating an event.

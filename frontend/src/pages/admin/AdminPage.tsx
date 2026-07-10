@@ -8,9 +8,14 @@ import {
   AlertCircle,
   Mail,
   Calendar,
+  Trash2,
+  X,
+  UserMinus,
 } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { Button, Input } from '@/components/ui'
 import { userService, type UserProfile, type UserRole } from '@/services/userService'
+import { useAuth } from '@/auth/AuthContext'
 
 const ROLE_BADGE: Record<UserRole, string> = {
   ADMINISTRATEUR: 'bg-red-500/15 text-red-300 border-red-500/30',
@@ -21,14 +26,20 @@ const ROLE_BADGE: Record<UserRole, string> = {
 /**
  * Admin panel (route: /admin).
  * Access is limited by ProtectedRoute to realm role ADMINISTRATEUR.
- * Backend also enforces the check via @PreAuthorize on GET /api/users.
+ * Backend also enforces the check via @PreAuthorize on GET/DELETE /api/users.
  */
 export default function AdminPage() {
+  const { user: currentUser } = useAuth()
   const [users, setUsers] = useState<UserProfile[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState<UserRole | 'ALL'>('ALL')
+
+  // Delete modal state
+  const [toDelete, setToDelete] = useState<UserProfile | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   async function fetchUsers() {
     try {
@@ -75,6 +86,33 @@ export default function AdminPage() {
     }),
     [users],
   )
+
+  async function handleConfirmDelete() {
+    if (!toDelete) return
+    setDeleteError(null)
+    setDeleting(true)
+    try {
+      await userService.deleteUser(toDelete.id)
+      // Optimistically remove from the local list — the USER_DELETED event
+      // will also arrive via SSE and show as a live notification.
+      setUsers(prev => prev.filter(u => u.id !== toDelete.id))
+      setToDelete(null)
+    } catch (e) {
+      const anyErr = e as { response?: { status?: number; data?: unknown } }
+      if (anyErr?.response?.status === 400) {
+        setDeleteError("Vous ne pouvez pas supprimer votre propre compte depuis ce panneau.")
+      } else if (anyErr?.response?.status === 403) {
+        setDeleteError('Accès refusé : rôle ADMINISTRATEUR requis.')
+      } else if (anyErr?.response?.status === 404) {
+        setDeleteError('Utilisateur introuvable (déjà supprimé ?).')
+      } else {
+        setDeleteError('La suppression a échoué. Réessayez.')
+      }
+      console.error(e)
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   return (
     <div className="max-w-7xl mx-auto p-6">
@@ -160,6 +198,7 @@ export default function AdminPage() {
                   <th className="px-4 py-3 text-left font-medium">Email</th>
                   <th className="px-4 py-3 text-left font-medium">Rôle</th>
                   <th className="px-4 py-3 text-left font-medium">Créé le</th>
+                  <th className="px-4 py-3 text-right font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-orbit-border">
@@ -168,6 +207,7 @@ export default function AdminPage() {
                     (u.firstName || u.lastName)
                       ? `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim()
                       : u.username
+                  const isSelf = currentUser?.id === u.id
                   return (
                     <tr key={u.id} className="hover:bg-white/5 transition-colors">
                       <td className="px-4 py-3">
@@ -176,7 +216,14 @@ export default function AdminPage() {
                             {(displayName?.[0] ?? '?').toUpperCase()}
                           </div>
                           <div className="min-w-0">
-                            <p className="text-slate-200 font-medium truncate">{displayName}</p>
+                            <p className="text-slate-200 font-medium truncate">
+                              {displayName}
+                              {isSelf && (
+                                <span className="ml-2 text-[10px] font-semibold uppercase tracking-wider text-orbit-primary-light bg-orbit-primary/15 px-1.5 py-0.5 rounded-full">
+                                  Moi
+                                </span>
+                              )}
+                            </p>
                             <p className="text-xs text-slate-500 truncate">@{u.username}</p>
                           </div>
                         </div>
@@ -200,6 +247,25 @@ export default function AdminPage() {
                           {u.createdAt ? new Date(u.createdAt).toLocaleDateString('fr-FR') : '—'}
                         </div>
                       </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDeleteError(null)
+                            setToDelete(u)
+                          }}
+                          disabled={isSelf}
+                          title={
+                            isSelf
+                              ? 'Vous ne pouvez pas supprimer votre propre compte'
+                              : `Supprimer ${displayName}`
+                          }
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-red-300 hover:text-red-200 hover:bg-red-500/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Supprimer
+                        </button>
+                      </td>
                     </tr>
                   )
                 })}
@@ -208,9 +274,29 @@ export default function AdminPage() {
           </div>
         )}
       </div>
+
+      {/* Delete confirmation modal */}
+      <AnimatePresence>
+        {toDelete && (
+          <DeleteModal
+            user={toDelete}
+            deleting={deleting}
+            error={deleteError}
+            onConfirm={handleConfirmDelete}
+            onCancel={() => {
+              if (!deleting) {
+                setToDelete(null)
+                setDeleteError(null)
+              }
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
 
 function StatTile({
   label,
@@ -238,5 +324,126 @@ function StatTile({
       </div>
       <p className={`text-2xl font-bold ${toneCls}`}>{value}</p>
     </div>
+  )
+}
+
+function DeleteModal({
+  user,
+  deleting,
+  error,
+  onConfirm,
+  onCancel,
+}: {
+  user: UserProfile
+  deleting: boolean
+  error: string | null
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  const displayName =
+    (user.firstName || user.lastName)
+      ? `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim()
+      : user.username
+
+  return (
+    <>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onCancel}
+        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50"
+      />
+      <motion.div
+        initial={{ opacity: 0, y: 12, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 12, scale: 0.96 }}
+        transition={{ duration: 0.18 }}
+        className="fixed inset-0 z-[60] flex items-center justify-center p-4 pointer-events-none"
+      >
+        <div className="pointer-events-auto w-full max-w-md bg-orbit-surface2 border border-orbit-border rounded-2xl shadow-2xl overflow-hidden">
+          {/* Header */}
+          <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-4">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-500/15 text-red-400 flex items-center justify-center">
+                <UserMinus className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-semibold text-slate-100">
+                  Supprimer l'utilisateur
+                </h2>
+                <p className="text-sm text-slate-400 mt-0.5">
+                  Cette action est irréversible.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={onCancel}
+              disabled={deleting}
+              className="text-slate-500 hover:text-slate-200 disabled:opacity-40 -mr-1 p-1"
+              aria-label="Fermer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Body */}
+          <div className="px-5 pb-4 space-y-3">
+            <div className="rounded-xl border border-orbit-border bg-orbit-surface p-3">
+              <p className="text-sm text-slate-200 font-medium">{displayName}</p>
+              <p className="text-xs text-slate-500">@{user.username} · {user.email}</p>
+              <p className="text-xs text-slate-500 mt-1">
+                <span className="text-slate-600">Rôle :</span> {user.role}
+              </p>
+            </div>
+            <p className="text-sm text-slate-400">
+              Le compte sera supprimé de <span className="text-slate-300">Keycloak</span> et
+              de la base de données locale. Un événement{' '}
+              <code className="text-orbit-primary-light bg-orbit-primary/10 px-1 py-0.5 rounded text-[11px]">
+                USER_DELETED
+              </code>{' '}
+              sera publié sur RabbitMQ et diffusé en temps réel.
+            </p>
+
+            {error && (
+              <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 text-red-300 rounded-lg p-2.5 text-xs">
+                <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-orbit-border bg-orbit-surface3/40">
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={deleting}
+              className="px-3 py-1.5 rounded-lg text-sm font-medium text-slate-300 hover:text-slate-100 hover:bg-white/5 disabled:opacity-40"
+            >
+              Annuler
+            </button>
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={deleting}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-red-500/15 border border-red-500/30 text-red-300 hover:bg-red-500/25 hover:text-red-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {deleting ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Suppression…
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Confirmer la suppression
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </>
   )
 }

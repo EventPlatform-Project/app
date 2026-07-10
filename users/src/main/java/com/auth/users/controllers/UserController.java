@@ -29,12 +29,6 @@ public class UserController {
         return ResponseEntity.ok(userService.getUserProfile(jwt.getSubject()));
     }
 
-    /**
-     * Internal lookup by Keycloak user id. Used by the events-service (Feign)
-     * to fetch the organizer's email when publishing an "event created"
-     * notification. Requires a valid JWT — the events-service forwards the
-     * caller's token, so this endpoint is not publicly reachable without auth.
-     */
     @GetMapping("/internal/{id}")
     public ResponseEntity<UserProfileResponse> getUserById(@PathVariable String id) {
         return ResponseEntity.ok(userService.getUserProfile(id));
@@ -54,6 +48,25 @@ public class UserController {
     @PreAuthorize("hasRole('ADMINISTRATEUR')")
     public ResponseEntity<List<UserProfileResponse>> getAllUsers() {
         return ResponseEntity.ok(userService.getAllUsers());
+    }
+
+    /**
+     * Admin-only: delete a user from Keycloak + local DB and broadcast a
+     * {@code USER_DELETED} event to the notification-service via RabbitMQ.
+     * <p>
+     * An admin cannot delete their own account via this endpoint (guard rail).
+     */
+    @DeleteMapping("/{userId}")
+    @PreAuthorize("hasRole('ADMINISTRATEUR')")
+    public ResponseEntity<Void> deleteUser(@PathVariable String userId,
+                                           @AuthenticationPrincipal Jwt jwt) {
+        if (userId.equals(jwt.getSubject())) {
+            // 400 Bad Request — refusing to let an admin delete themselves
+            // through the panel; they should use Keycloak directly.
+            return ResponseEntity.badRequest().build();
+        }
+        userService.deleteUser(userId);
+        return ResponseEntity.noContent().build();
     }
 
     /**
