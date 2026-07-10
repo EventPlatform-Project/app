@@ -38,16 +38,11 @@ services:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
     healthcheck:
-      # `rabbitmq-diagnostics ping` was flaky on the 3-management image and
-      # left the container marked (unhealthy) even after the broker had
-      # already accepted connections. Instead, poll the management HTTP
-      # endpoint — the broker is only reachable via AMQP once management
-      # returns 200. `wget -q --spider` is preinstalled in the image.
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:15672 || exit 1"]
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
       timeout: 5s
-      retries: 30
-      start_period: 90s
+      retries: 10
+      start_period: 30s
     restart: always
 
   # --- KEYCLOAK ---
@@ -200,7 +195,7 @@ services:
     restart: on-failure
 
   ticket-service:
-    build: ./ticket-service
+    build: ./ms-tickets
     container_name: ticket-service
     depends_on:
       config-server:

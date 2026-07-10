@@ -1,0 +1,10 @@
+com\smartevent\ticketservice\config\SecurityConfig.class
+com\smartevent\ticketservice\repository\TicketRepository.class
+com\smartevent\ticketservice\controller\TicketController.class
+com\smartevent\ticketservice\dto\ReservationConfirmedEvent.class
+com\smartevent\ticketservice\entity\Ticket$TicketStatus.class
+com\smartevent\ticketservice\service\TicketService.class
+com\smartevent\ticketservice\TicketServiceApplication.class
+com\smartevent\ticketservice\dto\TicketGeneratedEvent.class
+com\smartevent\ticketservice\entity\Ticket$TicketBuilder.class
+com\smartevent\ticketservice\entity\Ticket.class
