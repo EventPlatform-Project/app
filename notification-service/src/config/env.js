@@ -29,13 +29,21 @@ function boolEnv(names, fallback) {
 
 // -----------------------------------------------------------------------------
 // Env-var aliases:
-//   - Names prefixed with SERVER_ / NOTIFICATION_ come from the Spring Cloud
-//     Config server (see config-repo/notification-service.properties).
-//     configClient.js flattens property keys like `notification.mongo.uri`
-//     into env vars like `NOTIFICATION_MONGO_URI`.
-//   - Names without prefix are the direct env vars you can still export
-//     manually or set via docker-compose. They always take precedence.
+//   - Names prefixed with NOTIFICATION_ come from the Spring Cloud Config
+//     server (see config-repo/notification-service.properties). configClient.js
+//     flattens property keys like `notification.mongo.uri` into env vars like
+//     `NOTIFICATION_MONGO_URI`.
+//   - Direct names (MONGO_URI, RABBITMQ_URL, ...) always take precedence.
+//   - As a final fallback, we build the URLs from the bootstrap env vars
+//     MONGO_HOST / RABBITMQ_HOST that docker-compose sets. That way the
+//     service still works even if the config-server is unreachable at boot.
 // -----------------------------------------------------------------------------
+
+const mongoHost = firstEnv(['MONGO_HOST'], 'localhost');
+const rabbitHost = firstEnv(['RABBITMQ_HOST'], 'localhost');
+const rabbitPort = firstEnv(['RABBITMQ_PORT'], '5672');
+const rabbitUser = firstEnv(['RABBITMQ_USER'], 'guest');
+const rabbitPass = firstEnv(['RABBITMQ_PASSWORD'], 'guest');
 
 const config = {
   port: intEnv(['PORT', 'SERVER_PORT'], 9000),
@@ -44,14 +52,14 @@ const config = {
   // MongoDB
   mongoUri: firstEnv(
     ['MONGO_URI', 'NOTIFICATION_MONGO_URI'],
-    'mongodb://localhost:27017/notifications_db'
+    `mongodb://${mongoHost}:27017/notifications_db`
   ),
 
   // RabbitMQ
   rabbit: {
     url: firstEnv(
       ['RABBITMQ_URL', 'NOTIFICATION_RABBITMQ_URL'],
-      'amqp://guest:guest@localhost:5672'
+      `amqp://${rabbitUser}:${rabbitPass}@${rabbitHost}:${rabbitPort}`
     ),
     exchange: firstEnv(
       ['RABBITMQ_EXCHANGE', 'NOTIFICATION_RABBITMQ_EXCHANGE'],

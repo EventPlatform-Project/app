@@ -175,6 +175,10 @@ export default function ReservationsPage() {
 
   const confirmReservation = async (event: Event) => {
     if (!event.id) return
+    if (!user?.id) {
+      setReserveError('Utilisateur non authentifié — veuillez vous reconnecter.')
+      return
+    }
 
     const alreadyReserved = reservations.some(
       (r) => r.eventId === event.id && r.status !== 'CANCELLED',
@@ -187,7 +191,11 @@ export default function ReservationsPage() {
     try {
       setReserveSuccess(null)
       setReserveError(null)
-      const newRes = await reservationService.createReservation({ eventId: event.id })
+      // Backend requires userId — it does not infer it from the JWT.
+      const newRes = await reservationService.createReservation({
+        eventId: event.id,
+        userId: user.id,
+      })
       setReserveSuccess(`Réservation créée avec succès ! (ID: ${newRes.id})`)
       
       // Refresh data

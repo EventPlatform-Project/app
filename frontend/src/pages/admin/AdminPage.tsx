@@ -11,6 +11,8 @@ import {
   Trash2,
   X,
   UserMinus,
+  Check,
+  UserCog,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button, Input } from '@/components/ui'
@@ -40,6 +42,15 @@ export default function AdminPage() {
   const [toDelete, setToDelete] = useState<UserProfile | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  // Inline role-edit state (keyed by user id).
+  //   pendingRole[id]    = the role the admin has picked in the dropdown
+  //                        (not yet saved)
+  //   savingRoleId       = id of the user whose role is being persisted
+  //   roleError[id]      = server error for that specific row
+  const [pendingRole, setPendingRole] = useState<Record<string, UserRole>>({})
+  const [savingRoleId, setSavingRoleId] = useState<string | null>(null)
+  const [roleError, setRoleError] = useState<Record<string, string>>({})
 
   async function fetchUsers() {
     try {
@@ -86,6 +97,55 @@ export default function AdminPage() {
     }),
     [users],
   )
+
+  async function handleSaveRole(u: UserProfile) {
+    const next = pendingRole[u.id]
+    if (!next || next === u.role) {
+      // Nothing to save — clear pending state.
+      setPendingRole(prev => {
+        const { [u.id]: _, ...rest } = prev
+        return rest
+      })
+      return
+    }
+
+    setSavingRoleId(u.id)
+    setRoleError(prev => {
+      const { [u.id]: _, ...rest } = prev
+      return rest
+    })
+    try {
+      const updated = await userService.changeUserRole(u.id, next)
+      // Update the list with the server response.
+      setUsers(prev => prev.map(x => (x.id === u.id ? updated : x)))
+      // Clear pending state for this row.
+      setPendingRole(prev => {
+        const { [u.id]: _, ...rest } = prev
+        return rest
+      })
+    } catch (e) {
+      const anyErr = e as { response?: { status?: number } }
+      let msg = 'Impossible de changer le rôle.'
+      if (anyErr?.response?.status === 400) msg = 'Requête invalide (vous ne pouvez pas modifier votre propre rôle).'
+      else if (anyErr?.response?.status === 403) msg = 'Accès refusé.'
+      else if (anyErr?.response?.status === 404) msg = 'Utilisateur introuvable.'
+      setRoleError(prev => ({ ...prev, [u.id]: msg }))
+      console.error(e)
+    } finally {
+      setSavingRoleId(null)
+    }
+  }
+
+  function handleCancelRole(u: UserProfile) {
+    setPendingRole(prev => {
+      const { [u.id]: _, ...rest } = prev
+      return rest
+    })
+    setRoleError(prev => {
+      const { [u.id]: _, ...rest } = prev
+      return rest
+    })
+  }
 
   async function handleConfirmDelete() {
     if (!toDelete) return
@@ -196,7 +256,7 @@ export default function AdminPage() {
                 <tr>
                   <th className="px-4 py-3 text-left font-medium">Utilisateur</th>
                   <th className="px-4 py-3 text-left font-medium">Email</th>
-                  <th className="px-4 py-3 text-left font-medium">Rôle</th>
+                  <th className="px-4 py-3 text-left font-medium min-w-[220px]">Rôle</th>
                   <th className="px-4 py-3 text-left font-medium">Créé le</th>
                   <th className="px-4 py-3 text-right font-medium">Actions</th>
                 </tr>
@@ -235,11 +295,18 @@ export default function AdminPage() {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full border ${ROLE_BADGE[u.role]}`}
-                        >
-                          {u.role}
-                        </span>
+                        <RoleEditor
+                          user={u}
+                          isSelf={isSelf}
+                          pending={pendingRole[u.id]}
+                          saving={savingRoleId === u.id}
+                          error={roleError[u.id]}
+                          onPending={(r) =>
+                            setPendingRole(prev => ({ ...prev, [u.id]: r }))
+                          }
+                          onSave={() => handleSaveRole(u)}
+                          onCancel={() => handleCancelRole(u)}
+                        />
                       </td>
                       <td className="px-4 py-3 text-slate-400">
                         <div className="flex items-center gap-1.5">
@@ -323,6 +390,105 @@ function StatTile({
         {icon} {label}
       </div>
       <p className={`text-2xl font-bold ${toneCls}`}>{value}</p>
+    </div>
+  )
+}
+
+function RoleEditor({
+  user,
+  isSelf,
+  pending,
+  saving,
+  error,
+  onPending,
+  onSave,
+  onCancel,
+}: {
+  user: UserProfile
+  isSelf: boolean
+  pending: UserRole | undefined
+  saving: boolean
+  error: string | undefined
+  onPending: (r: UserRole) => void
+  onSave: () => void
+  onCancel: () => void
+}) {
+  const current = pending ?? user.role
+  const dirty = !!pending && pending !== user.role
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
+        {/* Colored dot showing the effective role */}
+        <span
+          className={`w-2 h-2 rounded-full flex-shrink-0 ${
+            current === 'ADMINISTRATEUR'
+              ? 'bg-red-400'
+              : current === 'ORGANISATEUR'
+              ? 'bg-amber-400'
+              : 'bg-emerald-400'
+          }`}
+        />
+        <select
+          value={current}
+          disabled={isSelf || saving}
+          onChange={e => onPending(e.target.value as UserRole)}
+          title={
+            isSelf
+              ? 'Vous ne pouvez pas modifier votre propre rôle'
+              : 'Changer le rôle'
+          }
+          className="h-8 rounded-lg border border-orbit-border bg-orbit-surface2 px-2 pr-6 text-xs text-slate-200 outline-none focus:border-orbit-primary focus:ring-1 focus:ring-orbit-primary/30 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <option value="ADMINISTRATEUR">ADMINISTRATEUR</option>
+          <option value="ORGANISATEUR">ORGANISATEUR</option>
+          <option value="PARTICIPANT">PARTICIPANT</option>
+        </select>
+
+        {dirty && !saving && (
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={onSave}
+              title="Enregistrer"
+              className="p-1 rounded-md text-emerald-300 hover:bg-emerald-500/10"
+            >
+              <Check className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              title="Annuler"
+              className="p-1 rounded-md text-slate-500 hover:bg-white/5"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {saving && (
+          <span className="inline-flex items-center gap-1 text-[11px] text-slate-400">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            …
+          </span>
+        )}
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-1 text-[11px] text-red-300 max-w-[240px]">
+          <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {dirty && !saving && !error && (
+        <div className="flex items-center gap-1 text-[11px] text-amber-300/80">
+          <UserCog className="w-3 h-3" />
+          <span>
+            {user.role} → {pending}
+          </span>
+        </div>
+      )}
     </div>
   )
 }

@@ -99,39 +99,68 @@ public class UserService {
         return mapToProfileResponse(user);
     }
 
-    /**
-     * Admin-only: delete a user from both Keycloak and the local DB, then
-     * publish a {@code USER_DELETED} event to RabbitMQ so the notification
-     * service can broadcast it to connected frontends.
-     * <p>
-     * Order of operations:
-     * <ol>
-     *   <li>Load the local record (so we still have a snapshot for the event).</li>
-     *   <li>Delete from Keycloak first (external side-effect that could fail).</li>
-     *   <li>Delete from the local Postgres table.</li>
-     *   <li>Publish {@code USER_DELETED} asynchronously.</li>
-     * </ol>
-     * If Keycloak deletion fails, we abort and keep the local row intact.
-     *
-     * @param userId Keycloak user id (== local {@code UserEntity.id}).
-     * @throws RuntimeException if the user does not exist locally.
-     */
+
     @Transactional
     public void deleteUser(String userId) {
         UserEntity user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found: " + userId));
 
-        // 1. Remove from Keycloak first — this is the "hard" step. If it fails,
-        //    we don't want to be left with a local record and no Keycloak account.
+
         keycloakService.deleteUser(userId);
 
-        // 2. Remove locally.
         userRepository.delete(user);
         log.info("Deleted user id={} username={} role={}",
                 user.getId(), user.getUsername(), user.getRole());
 
-        // 3. Broadcast the deletion (fire-and-forget).
         userEventPublisher.publishUserDeleted(user);
+    }
+
+    /**
+     * Admin-only: change a user's role.
+     * <p>
+     * Applies the change atomically in Keycloak (realm role mapping) and in
+     * the local Postgres record, then publishes a {@code USER_UPDATED} event
+     * so the notification-service can broadcast it.
+     * <p>
+     * The Keycloak call happens first so a failure there doesn't leave the DB
+     * out of sync. If the local commit later fails, Keycloak already has the
+     * new role but the DB will retry on next sync — mildly annoying, never
+     * dangerous.
+     *
+     * @param userId  Keycloak user id (== local {@code UserEntity.id})
+     * @param newRole target role
+     * @return the updated profile
+     * @throws RuntimeException if the user does not exist locally
+     */
+    @Transactional
+    public UserProfileResponse changeUserRole(String userId, UserRole newRole) {
+        if (newRole == null) {
+            throw new IllegalArgumentException("Role is required");
+        }
+
+        UserEntity user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+
+        if (user.getRole() == newRole) {
+            log.info("User {} already has role {}, skipping", userId, newRole);
+            return mapToProfileResponse(user);
+        }
+
+        UserRole previousRole = user.getRole();
+
+        // 1. Update Keycloak first (external, riskier).
+        keycloakService.setUserRealmRole(userId, newRole.name());
+
+        // 2. Update local DB.
+        user.setRole(newRole);
+        UserEntity saved = userRepository.save(user);
+        log.info("Changed role for user id={} username={}: {} -> {}",
+                userId, user.getUsername(), previousRole, newRole);
+
+        // 3. Broadcast (fire-and-forget).
+        userEventPublisher.publishUserUpdated(saved);
+
+        return mapToProfileResponse(saved);
     }
 
     @Transactional

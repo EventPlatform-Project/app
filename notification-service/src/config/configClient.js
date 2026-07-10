@@ -16,8 +16,10 @@ const https = require('https');
 const { URL } = require('url');
 
 const DEFAULT_TIMEOUT_MS = 5000;
-const DEFAULT_RETRIES = 5;
-const DEFAULT_RETRY_DELAY_MS = 3000;
+// Config-server can take 60-120s to fully boot in Docker (Spring init +
+// possible git clone). Retry generously so we don't fall back to defaults.
+const DEFAULT_RETRIES = 30;
+const DEFAULT_RETRY_DELAY_MS = 5000;
 
 const APP_NAME = process.env.CONFIG_APP_NAME || 'notification-service';
 const PROFILE = process.env.CONFIG_PROFILE || 'default';

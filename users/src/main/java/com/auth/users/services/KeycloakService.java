@@ -200,6 +200,85 @@ public class KeycloakService {
     }
 
     /**
+     * Replace the realm role mappings of a Keycloak user with a single role.
+     * <p>
+     * We first fetch the user's current realm role mappings and DELETE them,
+     * then POST the new role. This is idempotent — calling it twice with the
+     * same target role leaves Keycloak in the same state.
+     *
+     * @param userId    Keycloak user ID (same as local {@code UserEntity.id}).
+     * @param roleName  target realm role (e.g. {@code ADMINISTRATEUR}).
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public void setUserRealmRole(String userId, String roleName) {
+        String adminToken = getAdminToken();
+
+        HttpHeaders authHeaders = new HttpHeaders();
+        authHeaders.setBearerAuth(adminToken);
+        authHeaders.setContentType(MediaType.APPLICATION_JSON);
+
+        String mappingsUrl = authServerUrl + "/admin/realms/" + realm
+                + "/users/" + userId + "/role-mappings/realm";
+
+        // 1. Read current realm role mappings so we can remove them.
+        List<Map<String, Object>> currentRoles;
+        try {
+            ResponseEntity<List> resp = restTemplate.exchange(
+                    mappingsUrl,
+                    HttpMethod.GET,
+                    new HttpEntity<>(authHeaders),
+                    List.class);
+            currentRoles = resp.getBody() != null ? (List<Map<String, Object>>) resp.getBody() : List.of();
+        } catch (HttpClientErrorException e) {
+            log.error("Failed to read Keycloak role mappings for user {}: {} - {}",
+                    userId, e.getStatusCode(), e.getResponseBodyAsString());
+            throw new RuntimeException("Failed to read current roles in Keycloak: " + e.getStatusCode());
+        }
+
+        // 2. Remove all current realm roles (best effort — Keycloak DELETE
+        //    accepts a body of role representations, same shape as the GET
+        //    response).
+        if (!currentRoles.isEmpty()) {
+            try {
+                restTemplate.exchange(
+                        mappingsUrl,
+                        HttpMethod.DELETE,
+                        new HttpEntity<>(currentRoles, authHeaders),
+                        Void.class);
+            } catch (Exception e) {
+                log.warn("Failed to remove existing realm roles for user {}: {}",
+                        userId, e.getMessage());
+                // Continue — we still try to add the new role. The user might
+                // end up with multiple roles, but never with none.
+            }
+        }
+
+        // 3. Look up the target role's representation and assign it.
+        try {
+            String roleUrl = authServerUrl + "/admin/realms/" + realm + "/roles/" + roleName;
+            ResponseEntity<Map> roleResp = restTemplate.exchange(
+                    roleUrl,
+                    HttpMethod.GET,
+                    new HttpEntity<>(authHeaders),
+                    Map.class);
+            if (!roleResp.getStatusCode().is2xxSuccessful() || roleResp.getBody() == null) {
+                throw new RuntimeException("Role " + roleName + " not found in Keycloak");
+            }
+            Map<String, Object> roleRep = roleResp.getBody();
+
+            restTemplate.postForEntity(
+                    mappingsUrl,
+                    new HttpEntity<>(List.of(roleRep), authHeaders),
+                    Void.class);
+            log.info("Set realm role {} for user {}", roleName, userId);
+        } catch (HttpClientErrorException e) {
+            log.error("Failed to assign role {} to user {}: {} - {}",
+                    roleName, userId, e.getStatusCode(), e.getResponseBodyAsString());
+            throw new RuntimeException("Failed to assign role in Keycloak: " + e.getStatusCode());
+        }
+    }
+
+    /**
      * Delete a user from Keycloak by ID.
      * <p>
      * Returns silently if the user does not exist (404 from Keycloak), so

@@ -1,5 +1,6 @@
 package com.auth.users.controllers;
 
+import com.auth.users.dtos.ChangeRoleRequest;
 import com.auth.users.dtos.UserProfileResponse;
 import com.auth.users.dtos.UserSummaryResponse;
 import com.auth.users.dtos.UserUpdateRequest;
@@ -67,6 +68,29 @@ public class UserController {
         }
         userService.deleteUser(userId);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Admin-only: change a user's role in both Keycloak and the local DB.
+     * Publishes a {@code USER_UPDATED} event to RabbitMQ.
+     * <p>
+     * An admin cannot change their own role via this endpoint (would let
+     * them accidentally lock themselves out of the admin panel).
+     */
+    @PatchMapping("/{userId}/role")
+    @PreAuthorize("hasRole('ADMINISTRATEUR')")
+    public ResponseEntity<UserProfileResponse> changeUserRole(
+            @PathVariable String userId,
+            @RequestBody ChangeRoleRequest body,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        if (body == null || body.getRole() == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        if (userId.equals(jwt.getSubject())) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.ok(userService.changeUserRole(userId, body.getRole()));
     }
 
     /**
