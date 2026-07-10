@@ -71,14 +71,6 @@ public class SecurityConfig {
         return source;
     }
 
-    /**
-     * Convert a Keycloak JWT to Spring authorities. Realm & client roles are mapped
-     * to {@code ROLE_*} authorities so downstream {@code hasRole('X')} checks work.
-     * <p>
-     * Kept as a private helper (not a {@code @Bean}) to avoid Spring trying to
-     * auto-register the underlying {@code Converter<Jwt, AbstractAuthenticationToken>}
-     * lambda in the generic ConversionService.
-     */
     private ReactiveJwtAuthenticationConverterAdapter reactiveJwtAuthenticationConverter() {
         Converter<Jwt, AbstractAuthenticationToken> delegate = jwt -> {
             Set<GrantedAuthority> authorities = new HashSet<>();

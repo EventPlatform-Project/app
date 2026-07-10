@@ -2,14 +2,14 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Copie les fichiers de dépendances
+# Install deps first (better layer caching)
 COPY package*.json ./
+RUN npm install --omit=dev
 
-# Installe les dépendances
-RUN npm install
+# Copy source
+COPY src ./src
 
-COPY . .
+ENV NODE_ENV=production
+EXPOSE 9000
 
-EXPOSE 5000
-
-CMD ["npm", "start"]
+CMD ["node", "src/server.js"]

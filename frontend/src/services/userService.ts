@@ -64,6 +64,26 @@ export const userService = {
   },
 
   /**
+   * Admin-only: delete a user from Keycloak + local DB.
+   * The backend publishes a `USER_DELETED` event to RabbitMQ, which the
+   * notification-service consumes and broadcasts to all connected frontends
+   * (bell dropdown + `/notifications` page).
+   */
+  deleteUser: async (userId: string): Promise<void> => {
+    await api.delete(`${USERS}/${userId}`)
+  },
+
+  /**
+   * Admin-only: change a user's role.
+   * Backend updates both Keycloak's realm-role mapping and the local DB,
+   * then publishes a `USER_UPDATED` event to RabbitMQ.
+   */
+  changeUserRole: async (userId: string, role: UserRole): Promise<UserProfile> => {
+    const { data } = await api.patch<UserProfile>(`${USERS}/${userId}/role`, { role })
+    return data
+  },
+
+  /**
    * Lightweight list of users allowed to organize events (ORGANISATEUR + ADMINISTRATEUR).
    * Accessible to any authenticated user; used to populate the organizer picker
    * when creating an event.

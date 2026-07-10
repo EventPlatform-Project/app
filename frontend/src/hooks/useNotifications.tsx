@@ -8,27 +8,31 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { notificationService } from '@/services/notificationService'
 
 /**
  * Live notifications pushed by the notification-service (Node.js) over SSE.
  * The stream is fed by RabbitMQ messages published by users-service whenever
- * a new user account is created.
+ * a user event (created / updated / deleted) occurs.
+ *
+ * Contract with the backend (`src/models/Notification.js` on the server):
+ *   { id, type, message, userId, username, email, firstName, lastName,
+ *     role, read, createdAt, payload }
  */
 
 export interface LiveNotification {
   id: string
   type: string
+  message: string
   userId: string | null
   username: string | null
   email: string | null
   firstName: string | null
   lastName: string | null
   role: string | null
-  message: string
-  userCreatedAt: string | null
-  receivedAt: string
-  /** Local flag — not sent by the server. */
-  read?: boolean
+  read: boolean
+  createdAt: string
+  payload?: Record<string, unknown>
 }
 
 interface NotificationsContextValue {
@@ -36,8 +40,11 @@ interface NotificationsContextValue {
   notifications: LiveNotification[]
   unreadCount: number
   toast: LiveNotification | null
-  markAllRead: () => void
-  clear: () => void
+  refresh: () => Promise<void>
+  markRead: (id: string) => Promise<void>
+  markAllRead: () => Promise<void>
+  clear: () => Promise<void>
+  removeLocal: (id: string) => void
   dismissToast: () => void
 }
 
@@ -48,9 +55,8 @@ const GATEWAY_URL =
   'http://localhost:8888'
 
 const STREAM_URL = `${GATEWAY_URL.replace(/\/+$/, '')}/api/notifications/stream`
-const HISTORY_URL = `${GATEWAY_URL.replace(/\/+$/, '')}/api/notifications`
 
-const MAX_KEEP = 50
+const MAX_KEEP = 100
 const TOAST_MS = 5000
 const RECONNECT_MS = 5000
 
@@ -63,22 +69,19 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const reconnectRef = useRef<number | null>(null)
   const toastTimerRef = useRef<number | null>(null)
 
-  // ---- Load recent history once so the bell isn't empty on first open ---
-  useEffect(() => {
-    let cancelled = false
-    fetch(HISTORY_URL)
-      .then(r => (r.ok ? r.json() : []))
-      .then((items: LiveNotification[]) => {
-        if (cancelled || !Array.isArray(items)) return
-        setNotifications(items.slice(0, MAX_KEEP).map(n => ({ ...n, read: true })))
-      })
-      .catch(() => {
-        /* notification service may be down — silently ignore */
-      })
-    return () => {
-      cancelled = true
+  // ---- Load recent history from REST (Mongo-persisted) --------------------
+  const refresh = useCallback(async () => {
+    try {
+      const items = await notificationService.list({ limit: MAX_KEEP })
+      setNotifications(items)
+    } catch {
+      /* notification service may be down — silently ignore */
     }
   }, [])
+
+  useEffect(() => {
+    refresh()
+  }, [refresh])
 
   // ---- Open the SSE stream (auto-reconnect) ------------------------------
   const openStream = useCallback(() => {
@@ -90,13 +93,20 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     const es = new EventSource(STREAM_URL)
     esRef.current = es
 
-    es.addEventListener('ready', () => setConnected(true))
+    // Backend sends `event: hello` right after connect
+    es.addEventListener('hello', () => setConnected(true))
+    es.onopen = () => setConnected(true)
 
     es.addEventListener('notification', (evt: MessageEvent<string>) => {
       try {
-        const n = JSON.parse(evt.data) as LiveNotification
-        n.read = false
-        setNotifications(prev => [n, ...prev].slice(0, MAX_KEEP))
+        const raw = JSON.parse(evt.data) as LiveNotification
+        // New live events are unread by default
+        const n: LiveNotification = { ...raw, read: false }
+        setNotifications(prev => {
+          // Dedupe by id in case of reconnect replays
+          const filtered = prev.filter(x => x.id !== n.id)
+          return [n, ...filtered].slice(0, MAX_KEEP)
+        })
         setToast(n)
       } catch (err) {
         console.warn('[notifications] failed to parse SSE payload', err)
@@ -107,7 +117,6 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       setConnected(false)
       es.close()
       esRef.current = null
-      // Retry after a delay
       if (reconnectRef.current == null) {
         reconnectRef.current = window.setTimeout(() => {
           reconnectRef.current = null
@@ -146,11 +155,42 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     }
   }, [toast])
 
-  const markAllRead = useCallback(() => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })))
+  // ---- Actions (persisted server-side) -----------------------------------
+  const markRead = useCallback(async (id: string) => {
+    // Optimistic update
+    setNotifications(prev => prev.map(n => (n.id === id ? { ...n, read: true } : n)))
+    try {
+      await notificationService.markRead(id)
+    } catch {
+      // Revert on failure
+      setNotifications(prev => prev.map(n => (n.id === id ? { ...n, read: false } : n)))
+    }
   }, [])
 
-  const clear = useCallback(() => setNotifications([]), [])
+  const markAllRead = useCallback(async () => {
+    const previous = notifications
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })))
+    try {
+      await notificationService.markAllRead()
+    } catch {
+      setNotifications(previous)
+    }
+  }, [notifications])
+
+  const clear = useCallback(async () => {
+    const previous = notifications
+    setNotifications([])
+    try {
+      await notificationService.clearAll()
+    } catch {
+      setNotifications(previous)
+    }
+  }, [notifications])
+
+  const removeLocal = useCallback((id: string) => {
+    setNotifications(prev => prev.filter(n => n.id !== id))
+  }, [])
+
   const dismissToast = useCallback(() => setToast(null), [])
 
   const unreadCount = useMemo(
@@ -164,11 +204,25 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       notifications,
       unreadCount,
       toast,
+      refresh,
+      markRead,
       markAllRead,
       clear,
+      removeLocal,
       dismissToast,
     }),
-    [connected, notifications, unreadCount, toast, markAllRead, clear, dismissToast],
+    [
+      connected,
+      notifications,
+      unreadCount,
+      toast,
+      refresh,
+      markRead,
+      markAllRead,
+      clear,
+      removeLocal,
+      dismissToast,
+    ],
   )
 
   return (

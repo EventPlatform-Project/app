@@ -6,6 +6,7 @@ import { cn } from '@/utils/cn'
 import { navigation } from '@/data/navigation'
 import { useSidebar } from '@/hooks/useSidebar'
 import { useAuth } from '@/auth/AuthContext'
+import { useNotifications } from '@/hooks/useNotifications'
 import type { NavItem } from '@/types'
 
 // --- COMPOSANT LOGO PERSONNALISÉ ---
@@ -197,19 +198,27 @@ function NavItemLink({
 export function Sidebar() {
   const { collapsed, isMobile, mobileOpen, closeMobile } = useSidebar()
   const { user, hasRole, logout } = useAuth()
+  const { unreadCount } = useNotifications()
 
   const onNavClick = () => {
     if (isMobile) closeMobile()
   }
 
-  // Hide Admin panel for non-admins
+  // Hide Admin panel for non-admins, and inject a live unread-count badge
+  // on the Notifications entry.
   const visibleSections = navigation
     .map(section => ({
       ...section,
-      items: section.items.filter(item => {
-        if (item.href === '/admin') return hasRole('ADMINISTRATEUR')
-        return true
-      }),
+      items: section.items
+        .filter(item => {
+          if (item.href === '/admin') return hasRole('ADMINISTRATEUR')
+          return true
+        })
+        .map(item =>
+          item.href === '/notifications' && unreadCount > 0
+            ? { ...item, badge: unreadCount > 9 ? '9+' : String(unreadCount) }
+            : item,
+        ),
     }))
     .filter(section => section.items.length > 0)
 

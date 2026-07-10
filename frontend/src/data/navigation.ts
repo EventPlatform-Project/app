@@ -9,6 +9,7 @@ import {
   Star,
   Ticket,
   User,
+  Bell,
 } from 'lucide-react'
 import type { NavSection } from '@/types'
 
@@ -17,6 +18,7 @@ export const navigation: NavSection[] = [
     title: 'Général',
     items: [
       { label: 'Accueil', icon: Home, href: '/welcome' }, // <-- Ajoute cette ligne
+      { label: 'Notifications', icon: Bell, href: '/notifications' },
     ],
   },
   {

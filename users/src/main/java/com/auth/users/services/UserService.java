@@ -99,6 +99,70 @@ public class UserService {
         return mapToProfileResponse(user);
     }
 
+
+    @Transactional
+    public void deleteUser(String userId) {
+        UserEntity user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+
+
+        keycloakService.deleteUser(userId);
+
+        userRepository.delete(user);
+        log.info("Deleted user id={} username={} role={}",
+                user.getId(), user.getUsername(), user.getRole());
+
+        userEventPublisher.publishUserDeleted(user);
+    }
+
+    /**
+     * Admin-only: change a user's role.
+     * <p>
+     * Applies the change atomically in Keycloak (realm role mapping) and in
+     * the local Postgres record, then publishes a {@code USER_UPDATED} event
+     * so the notification-service can broadcast it.
+     * <p>
+     * The Keycloak call happens first so a failure there doesn't leave the DB
+     * out of sync. If the local commit later fails, Keycloak already has the
+     * new role but the DB will retry on next sync — mildly annoying, never
+     * dangerous.
+     *
+     * @param userId  Keycloak user id (== local {@code UserEntity.id})
+     * @param newRole target role
+     * @return the updated profile
+     * @throws RuntimeException if the user does not exist locally
+     */
+    @Transactional
+    public UserProfileResponse changeUserRole(String userId, UserRole newRole) {
+        if (newRole == null) {
+            throw new IllegalArgumentException("Role is required");
+        }
+
+        UserEntity user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+
+        if (user.getRole() == newRole) {
+            log.info("User {} already has role {}, skipping", userId, newRole);
+            return mapToProfileResponse(user);
+        }
+
+        UserRole previousRole = user.getRole();
+
+        // 1. Update Keycloak first (external, riskier).
+        keycloakService.setUserRealmRole(userId, newRole.name());
+
+        // 2. Update local DB.
+        user.setRole(newRole);
+        UserEntity saved = userRepository.save(user);
+        log.info("Changed role for user id={} username={}: {} -> {}",
+                userId, user.getUsername(), previousRole, newRole);
+
+        // 3. Broadcast (fire-and-forget).
+        userEventPublisher.publishUserUpdated(saved);
+
+        return mapToProfileResponse(saved);
+    }
+
     @Transactional
     public UserProfileResponse updateUserProfile(String userId, UserUpdateRequest updateRequest) {
         UserEntity user = userRepository.findById(userId)

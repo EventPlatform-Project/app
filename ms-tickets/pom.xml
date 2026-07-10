@@ -117,6 +117,25 @@
                     </annotationProcessorPaths>
                 </configuration>
             </plugin>
+
+            <!--
+                Builds an executable "fat" JAR (with Main-Class in the manifest
+                and all dependencies bundled). Without this plugin, `mvn package`
+                produces a plain library JAR and `java -jar app.jar` fails with
+                "no main manifest attribute".
+            -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>
