@@ -19,12 +19,7 @@ import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "users", indexes = {
-        @Index(name = "idx_users_username", columnList = "username"),
-        @Index(name = "idx_users_email", columnList = "email"),
-        @Index(name = "idx_users_role", columnList = "role")
-})
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -34,7 +29,7 @@ public class User {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    private String id;
 
     @Column(name = "first_name", nullable = false, length = 100)
     private String firstName;

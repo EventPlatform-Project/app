@@ -6,7 +6,7 @@
     <file url="file://$PROJECT_DIR$/discovery-server/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/ms-event/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/ms-reservation/src/main/java" charset="UTF-8" />
-    <file url="file://$PROJECT_DIR$/ticket-service/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/ms-tickets/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/users/src/main/java" charset="UTF-8" />
   </component>
 </project>

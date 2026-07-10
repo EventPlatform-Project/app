@@ -1,5 +1,6 @@
 package com.example.ReservationEvent.config;
 
+import feign.RequestInterceptor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
@@ -10,8 +11,10 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.security.web.SecurityFilterChain;
@@ -31,7 +34,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html",
-                                         "/api/reservations/v3/api-docs/**").permitAll()
+                                "/api/reservations/v3/api-docs/**").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
                         .anyRequest().authenticated()
                 )
@@ -43,10 +46,20 @@ public class SecurityConfig {
     }
 
     /**
-     * NOT a {@code @Bean}: exposing a raw {@code Converter<Jwt, AbstractAuthenticationToken>}
-     * bean breaks {@code mvcConversionService} initialization
-     * ("Unable to determine source type &lt;S&gt; and target type &lt;T&gt;").
+     * CORRECTION POUR OPENFEIGN (Propagation du Token JWT)
+     * Cet intercepteur récupère le token de l'utilisateur connecté et l'ajoute
+     * à l'appel vers ms-event pour éviter l'erreur 401.
      */
+    @Bean
+    public RequestInterceptor requestInterceptor() {
+        return requestTemplate -> {
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            if (auth instanceof JwtAuthenticationToken jwt) {
+                requestTemplate.header("Authorization", "Bearer " + jwt.getToken().getTokenValue());
+            }
+        };
+    }
+
     private Converter<Jwt, AbstractAuthenticationToken> jwtAuthConverter() {
         return jwt -> {
             Set<GrantedAuthority> authorities = new HashSet<>();

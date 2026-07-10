@@ -9,11 +9,11 @@ import java.util.Optional;
 
 public interface ReservationRepository extends JpaRepository<Reservation, Long> {
 
-    List<Reservation> findByUserId(Long userId);
+    List<Reservation> findByUserId(String userId);
 
     List<Reservation> findByEventId(Long eventId);
 
     List<Reservation> findByStatus(ReservationStatus status);
 
-    Optional<Reservation> findByUserIdAndEventId(Long userId, Long eventId);
+    Optional<Reservation> findByUserIdAndEventId(String userId, Long eventId);
 }

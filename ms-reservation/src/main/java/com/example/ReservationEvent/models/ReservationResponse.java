@@ -16,7 +16,7 @@ import java.time.LocalDateTime;
 public class ReservationResponse {
 
     private Long id;
-    private Long userId;
+    private String userId; // CHANGÉ : Long -> String pour Keycloak
     private Long eventId;
     private ReservationStatus status;
     private Integer seatNumber;
@@ -27,7 +27,7 @@ public class ReservationResponse {
     public static ReservationResponse fromEntity(Reservation reservation) {
         return ReservationResponse.builder()
                 .id(reservation.getId())
-                .userId(reservation.getUserId())
+                .userId(reservation.getUserId()) // Ici, reservation.getUserId() doit aussi retourner un String
                 .eventId(reservation.getEventId())
                 .status(reservation.getStatus())
                 .seatNumber(reservation.getSeatNumber())

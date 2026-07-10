@@ -2,23 +2,29 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { Layout } from '@/components/layout/Layout'
 import { ProtectedRoute } from '@/auth/ProtectedRoute'
 
+
 // Auth pages
 import { SignInPage } from '@/pages/auth/SignInPage'
 import { SignUpPage } from '@/pages/auth/SignUpPage'
 import { ForgotPasswordPage } from '@/pages/auth/ForgotPasswordPage'
 
+
 // App pages
 import WelcomePage from '@/pages/WelcomePage'
 import EventsPage from '@/pages/events/EventsPage'
 import ReservationsPage from '@/pages/reservations/ReservationsPage'
+import TicketsPage from '@/pages/tickets/TicketsPage' // 1. AJOUTE CET IMPORT (fix path casing)
+
 import ProfilePage from '@/pages/profile/ProfilePage'
 import AdminPage from '@/pages/admin/AdminPage'
 import ForbiddenPage from '@/pages/ForbiddenPage'
+
 
 // Utility template pages
 import { SettingsPage } from '@/pages/settings/SettingsPage'
 import { HelpPage } from '@/pages/help/HelpPage'
 import { ComponentsPage } from '@/pages/components/ComponentsPage'
+
 
 export default function App() {
   return (
@@ -28,10 +34,14 @@ export default function App() {
       <Route path="/sign-up" element={<SignUpPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
+
       {/* 2. Public application routes — with sidebar, no Keycloak auth required */}
       <Route element={<Layout />}>
         <Route path="/reservations" element={<ReservationsPage />} />
+        {/* 2. AJOUTE LA ROUTE ICI SI TU VEUX QU'ELLE SOIT PUBLIQUE */}
+        <Route path="/tickets" element={<TicketsPage />} />
       </Route>
+
 
       {/* 3. Application routes — with sidebar, protected by Keycloak */}
       <Route
@@ -45,8 +55,14 @@ export default function App() {
         <Route path="/welcome" element={<WelcomePage />} />
         <Route path="/events" element={<EventsPage />} />
 
+
+        {/* Note : Si tu préfères que la page Tickets nécessite une connexion,
+            déplace la ligne <Route path="/tickets" element={<TicketsPage />} /> ici à la place */}
+
+
         {/* Requires authentication only */}
         <Route path="/profile" element={<ProfilePage />} />
+
 
         {/* Admin-only: enforced by role + backend @PreAuthorize */}
         <Route
@@ -58,10 +74,12 @@ export default function App() {
           }
         />
 
+
         <Route path="/forbidden" element={<ForbiddenPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/help" element={<HelpPage />} />
         <Route path="/components" element={<ComponentsPage />} />
+
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/welcome" replace />} />
@@ -69,3 +87,4 @@ export default function App() {
     </Routes>
   )
 }
+

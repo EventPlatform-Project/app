@@ -20,6 +20,13 @@ public class ReservationController {
 
     private final ReservationService reservationService;
 
+    // Récupérer TOUTES les réservations (Pour l'Admin)
+    // C'est cette méthode qui corrige l'erreur 405
+    @GetMapping
+    public ResponseEntity<List<ReservationResponse>> getAllReservations() {
+        return ResponseEntity.ok(reservationService.getAllReservations());
+    }
+
     @PostMapping
     public ResponseEntity<ReservationResponse> createReservation(
             @Valid @RequestBody CreateReservationRequest request) {
@@ -29,7 +36,7 @@ public class ReservationController {
 
     @GetMapping("/user/{userId}")
     public ResponseEntity<List<ReservationResponse>> getReservationsByUser(
-            @PathVariable Long userId) {
+            @PathVariable String userId) {
         return ResponseEntity.ok(reservationService.getReservationsByUser(userId));
     }
 
@@ -55,9 +62,6 @@ public class ReservationController {
     public ResponseEntity<ReservationResponse> cancelReservation(
             @PathVariable Long id,
             @AuthenticationPrincipal User currentUser) {
-
-        return ResponseEntity.ok(
-                reservationService.cancelReservation(id, currentUser)
-        );
+        return ResponseEntity.ok(reservationService.cancelReservation(id, currentUser));
     }
 }
