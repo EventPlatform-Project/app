@@ -7,7 +7,9 @@ import com.google.zxing.client.j2se.MatrixToImageWriter;
 import com.google.zxing.common.BitMatrix;
 import com.google.zxing.qrcode.QRCodeWriter;
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel;
+import com.smartevent.ticketservice.client.ReservationClient;
 import com.smartevent.ticketservice.dto.ReservationConfirmedEvent;
+import com.smartevent.ticketservice.dto.ReservationDto;
 import com.smartevent.ticketservice.entity.Ticket;
 import com.smartevent.ticketservice.repository.TicketRepository;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +34,40 @@ import java.util.Map;
 public class TicketService {
 
     private final TicketRepository ticketRepository;
+    private final ReservationClient reservationClient;
+
+    /**
+     * Generate a ticket from just a reservationId. ms-tickets pulls the
+     * reservation details from ms-reservation via Feign (through the API
+     * gateway, with the incoming JWT forwarded by {@code FeignConfig}).
+     */
+    @Transactional
+    public Ticket generateTicketFromReservation(Long reservationId) {
+        if (reservationId == null) {
+            throw new IllegalArgumentException("reservationId is required");
+        }
+        if (ticketRepository.existsByReservationId(reservationId)) {
+            log.warn("Ticket déjà existant pour reservationId={}", reservationId);
+            return ticketRepository.findByReservationId(reservationId).orElseThrow();
+        }
+
+        ReservationDto res = reservationClient.getReservationById(reservationId);
+        if (res == null) {
+            throw new IllegalStateException("Réservation introuvable: " + reservationId);
+        }
+        if (res.getStatus() != null && "CANCELLED".equalsIgnoreCase(res.getStatus())) {
+            throw new IllegalStateException(
+                "Impossible de générer un ticket pour une réservation annulée #" + reservationId);
+        }
+
+        ReservationConfirmedEvent evt = new ReservationConfirmedEvent();
+        evt.setReservationId(res.getId());
+        evt.setUserId(res.getUserId());
+        evt.setEventId(res.getEventId());
+        evt.setSeatNumber(res.getSeatNumber());
+        evt.setConfirmedAt(java.time.LocalDateTime.now());
+        return generateTicket(evt);
+    }
 
     @Transactional
     public Ticket generateTicket(ReservationConfirmedEvent event) {

@@ -27,6 +27,18 @@ export const ticketService = {
     return response.data
   },
 
+  /**
+   * Generate a ticket for an existing reservation. ms-tickets fetches the
+   * reservation details from ms-reservation via Feign, so the frontend only
+   * needs to provide the reservation id.
+   */
+  generateFromReservation: async (reservationId: number): Promise<TicketResponse> => {
+    const response = await api.post<TicketResponse>(`${TICKETS}/generate`, {
+      reservationId,
+    })
+    return response.data
+  },
+
   // Récupérer un ticket par son ID
   getTicketById: async (id: number): Promise<TicketResponse> => {
     const response = await api.get<TicketResponse>(`${TICKETS}/${id}`)

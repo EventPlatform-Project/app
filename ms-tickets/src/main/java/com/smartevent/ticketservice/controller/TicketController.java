@@ -1,6 +1,8 @@
 package com.smartevent.ticketservice.controller;
 
+import com.smartevent.ticketservice.client.ReservationClient;
 import com.smartevent.ticketservice.dto.ReservationConfirmedEvent;
+import com.smartevent.ticketservice.dto.ReservationDto;
 import com.smartevent.ticketservice.entity.Ticket;
 import com.smartevent.ticketservice.service.TicketService;
 import lombok.RequiredArgsConstructor;
@@ -9,6 +11,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.http.MediaType;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/tickets")
@@ -16,10 +19,41 @@ import java.util.List;
 public class TicketController {
 
     private final TicketService ticketService;
+    private final ReservationClient reservationClient;
 
     @PostMapping("/create")
     public ResponseEntity<Ticket> createTicket(@RequestBody ReservationConfirmedEvent event) {
         return ResponseEntity.ok(ticketService.generateTicket(event));
+    }
+
+    /**
+     * Generate a ticket from just a reservation id. ms-tickets calls
+     * ms-reservation via Feign to hydrate the ReservationConfirmedEvent.
+     * Body: { "reservationId": 42 }.
+     */
+    @PostMapping("/generate")
+    public ResponseEntity<Ticket> generateFromReservation(@RequestBody Map<String, Object> body) {
+        Object raw = body != null ? body.get("reservationId") : null;
+        if (raw == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        Long reservationId;
+        try {
+            reservationId = Long.valueOf(raw.toString());
+        } catch (NumberFormatException ex) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.ok(ticketService.generateTicketFromReservation(reservationId));
+    }
+
+    /**
+     * Fetch the caller's reservations by proxying ms-reservation. Handy for
+     * the frontend "pick a reservation" modal when generating a ticket, so
+     * the browser doesn't need to know about the reservation service directly.
+     */
+    @GetMapping("/user/{userId}/reservations")
+    public ResponseEntity<List<ReservationDto>> reservationsForUser(@PathVariable String userId) {
+        return ResponseEntity.ok(reservationClient.getReservationsByUser(userId));
     }
 
     @GetMapping("/{id}")

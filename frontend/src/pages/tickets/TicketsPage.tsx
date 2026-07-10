@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { ticketService, type TicketResponse } from '../../services/ticketService'
 import { eventService } from '@/services/eventService'
+import { reservationService, type ReservationResponse } from '@/services/reservationService'
 import type { Event as EventItem } from '@/types/event'
 import { useAuth } from '@/auth/AuthContext'
 
@@ -64,9 +65,18 @@ export default function TicketsPage() {
   const [events, setEvents] = useState<EventItem[]>([])
   const [selectedEventId, setSelectedEventId] = useState<number | 'ALL'>('ALL')
 
-  // États pour la Modal
+  // États pour la Modal du QR code
   const [selectedTicket, setSelectedTicket] = useState<TicketResponse | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+
+  // États pour la modale "Ajouter un ticket" (choix de la réservation)
+  const [isAddOpen, setIsAddOpen] = useState(false)
+  const [reservations, setReservations] = useState<ReservationResponse[]>([])
+  const [reservationsLoading, setReservationsLoading] = useState(false)
+  const [reservationsError, setReservationsError] = useState<string | null>(null)
+  const [pickedReservationId, setPickedReservationId] = useState<number | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const [generateError, setGenerateError] = useState<string | null>(null)
 
   const loadTickets = async () => {
     if (!user?.id) {
@@ -88,33 +98,63 @@ export default function TicketsPage() {
     }
   }
 
-  const handleCreateTestTicket = async () => {
-    if (!user?.id) return;
-    const fakeResId = Math.floor(Date.now() / 1000);
-    const currentUser = user as any;
-
-    const testEvent = {
-      reservationId: fakeResId,
-      userId: user.id,
-      eventId: 101,
-      eventTitle: "Conférence Tech 2026",
-      userEmail: user.email || "user@example.com",
-      userFullName: currentUser.name || currentUser.username || currentUser.preferred_username || "Utilisateur Esprit",
-      seatNumber: Math.floor(Math.random() * 100),
-      confirmedAt: new Date().toISOString()
-    };
-
+  /**
+   * Open the "Ajouter un ticket" modal. Uses feign-backed
+   * GET /api/reservations/user/{userId} to list the current user's
+   * reservations so they can pick which one to generate a ticket for.
+   */
+  const openAddModal = async () => {
+    if (!user?.id) return
+    setIsAddOpen(true)
+    setPickedReservationId(null)
+    setGenerateError(null)
+    setReservationsError(null)
+    setReservationsLoading(true)
     try {
-      setLoading(true);
-      setErrorMsg(null);
-      await ticketService.createTicket(testEvent);
-      await loadTickets();
-    } catch (err: any) {
-      setErrorMsg("Échec de création. Vérifiez la console.");
+      const list = await reservationService.getReservationsByUser(user.id)
+      setReservations(Array.isArray(list) ? list : [])
+    } catch (err) {
+      console.error('[tickets] failed to load reservations', err)
+      setReservationsError('Impossible de charger vos réservations.')
+      setReservations([])
     } finally {
-      setLoading(false);
+      setReservationsLoading(false)
     }
-  };
+  }
+
+  const closeAddModal = () => {
+    if (generating) return
+    setIsAddOpen(false)
+    setPickedReservationId(null)
+    setGenerateError(null)
+  }
+
+  const handleGenerateTicket = async () => {
+    if (!pickedReservationId) return
+    setGenerating(true)
+    setGenerateError(null)
+    try {
+      await ticketService.generateFromReservation(pickedReservationId)
+      await loadTickets()
+      setIsAddOpen(false)
+      setPickedReservationId(null)
+    } catch (err) {
+      const anyErr = err as { response?: { status?: number; data?: unknown } }
+      const status = anyErr?.response?.status
+      if (status === 400) {
+        setGenerateError('Requête invalide. La réservation est-elle annulée ?')
+      } else if (status === 401) {
+        setGenerateError('Session expirée, veuillez vous reconnecter.')
+      } else if (status === 404) {
+        setGenerateError('Réservation introuvable.')
+      } else {
+        setGenerateError('La génération du ticket a échoué.')
+      }
+      console.error('[tickets] generate failed', err)
+    } finally {
+      setGenerating(false)
+    }
+  }
 
   useEffect(() => {
     loadTickets()
@@ -167,6 +207,21 @@ export default function TicketsPage() {
     return tickets.filter((t) => t.eventId === selectedEventId)
   }, [tickets, selectedEventId])
 
+  // Set of reservation IDs that already have a ticket — used to disable them
+  // in the "pick a reservation" modal so the same reservation can't be picked
+  // twice (the backend also enforces this).
+  const reservationIdsWithTicket = useMemo(
+    () => new Set(tickets.map((t) => t.reservationId)),
+    [tickets],
+  )
+
+  // Fast lookup of event title by id for the modal.
+  const eventTitleById = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const e of events) if (e.id != null) map.set(e.id as number, e.title ?? '')
+    return map
+  }, [events])
+
   const selectedEventTitle =
     selectedEventId === 'ALL'
       ? 'Tous les événements'
@@ -187,8 +242,8 @@ export default function TicketsPage() {
 
         <div className="flex gap-3">
           <button
-            onClick={handleCreateTestTicket}
-            disabled={loading}
+            onClick={openAddModal}
+            disabled={loading || !user?.id}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-orbit-primary hover:bg-orbit-primary-light text-white font-bold transition-all shadow-lg text-sm disabled:opacity-50"
           >
             <Plus size={18} />
@@ -308,6 +363,150 @@ export default function TicketsPage() {
           </div>
         )}
       </div>
+
+      {/* --- MODAL AJOUTER UN TICKET (Choix de la réservation) --- */}
+      {isAddOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-orbit-border w-full max-w-lg rounded-2xl overflow-hidden shadow-2xl">
+            {/* Header */}
+            <div className="flex items-start justify-between px-5 pt-5 pb-3 border-b border-orbit-border">
+              <div>
+                <h3 className="text-slate-100 font-bold text-lg flex items-center gap-2">
+                  <Plus size={18} className="text-orbit-primary-light" />
+                  Générer un ticket
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Choisissez la réservation pour laquelle générer un ticket.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeAddModal}
+                disabled={generating}
+                aria-label="Fermer"
+                className="text-slate-500 hover:text-slate-200 disabled:opacity-40 -mr-1 p-1"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-5 py-4 max-h-[60vh] overflow-y-auto">
+              {reservationsLoading ? (
+                <div className="py-10 flex items-center justify-center gap-2 text-slate-500 text-sm">
+                  <RefreshCw size={16} className="animate-spin" />
+                  Chargement des réservations…
+                </div>
+              ) : reservationsError ? (
+                <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 text-red-300 rounded-lg p-3 text-xs">
+                  <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                  <span>{reservationsError}</span>
+                </div>
+              ) : reservations.length === 0 ? (
+                <div className="py-8 text-center text-sm text-slate-500">
+                  Vous n'avez pas encore de réservation. Créez-en une depuis la
+                  page « Réservations » pour pouvoir générer un ticket.
+                </div>
+              ) : (
+                <ul className="space-y-2">
+                  {reservations.map((res) => {
+                    const already = reservationIdsWithTicket.has(res.id)
+                    const cancelled =
+                      typeof res.status === 'string' &&
+                      res.status.toUpperCase() === 'CANCELLED'
+                    const disabled = already || cancelled
+                    const active = pickedReservationId === res.id
+                    const title = eventTitleById.get(res.eventId) ?? `Événement #${res.eventId}`
+                    return (
+                      <li key={res.id}>
+                        <button
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => setPickedReservationId(res.id)}
+                          className={`w-full text-left rounded-xl border p-3 transition-colors ${
+                            active
+                              ? 'border-orbit-primary/50 bg-orbit-primary/10'
+                              : disabled
+                              ? 'border-slate-800 bg-slate-900/40 opacity-50 cursor-not-allowed'
+                              : 'border-slate-700 bg-slate-900/40 hover:border-orbit-primary/40 hover:bg-slate-900/70'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-slate-200 text-sm font-semibold truncate">
+                                {title}
+                              </p>
+                              <p className="text-[11px] text-slate-500 mt-0.5">
+                                Réservation #{res.id}
+                                {res.seatNumber != null && (
+                                  <> · Place {res.seatNumber}</>
+                                )}
+                                <> · Statut {res.status}</>
+                              </p>
+                            </div>
+                            <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                              {already && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                  Ticket existant
+                                </span>
+                              )}
+                              {cancelled && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/30">
+                                  Annulée
+                                </span>
+                              )}
+                              {active && !disabled && (
+                                <CheckCircle2 size={16} className="text-orbit-primary-light" />
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+
+              {generateError && (
+                <div className="mt-3 flex items-start gap-2 bg-red-500/10 border border-red-500/30 text-red-300 rounded-lg p-2.5 text-xs">
+                  <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                  <span>{generateError}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-orbit-border bg-slate-900/60">
+              <button
+                type="button"
+                onClick={closeAddModal}
+                disabled={generating}
+                className="px-3 py-2 rounded-lg text-sm text-slate-300 hover:text-slate-100 hover:bg-white/5 disabled:opacity-40"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleGenerateTicket}
+                disabled={!pickedReservationId || generating}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold bg-orbit-primary hover:bg-orbit-primary-light text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {generating ? (
+                  <>
+                    <RefreshCw size={14} className="animate-spin" />
+                    Génération…
+                  </>
+                ) : (
+                  <>
+                    <Plus size={14} />
+                    Générer le ticket
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* --- MODAL DU TICKET --- */}
       {isModalOpen && selectedTicket && (

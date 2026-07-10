@@ -11,6 +11,7 @@ export interface ReservationResponse {
   userId: string
   createdAt: string // Match le backend Java
   status: 'PENDING' | 'CONFIRMED' | 'CANCELLED' | string
+  seatNumber?: number | null
 }
 
 const RESERVATIONS = '/api/reservations'
