@@ -16,6 +16,7 @@ import TicketsPage from '@/pages/tickets/TicketsPage'
 import ProfilePage from '@/pages/profile/ProfilePage'
 import AdminPage from '@/pages/admin/AdminPage'
 import NotificationsPage from '@/pages/notifications/NotificationsPage'
+import FeedbackPage from '@/pages/feedback/FeedbackPage'
 import ForbiddenPage from '@/pages/ForbiddenPage'
 
 // Utility template pages
@@ -48,6 +49,7 @@ export default function App() {
         <Route path="/tickets" element={<TicketsPage />} />
         
         <Route path="/notifications" element={<NotificationsPage />} />
+        <Route path="/feedback" element={<FeedbackPage />} />
         <Route path="/profile" element={<ProfilePage />} />
 
         {/* Accès Admin uniquement */}

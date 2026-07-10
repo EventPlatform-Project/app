@@ -38,11 +38,13 @@ public class SecurityConfig {
                         // Notification service (Node.js) — reads are public for demo
                         .pathMatchers(HttpMethod.GET, "/api/notifications/**").permitAll()
                         .pathMatchers("/api/notifications/health").permitAll()
-                        // Swagger aggregation
+                        // Swagger aggregation (aggregated UI hosted by the gateway,
+                        // plus per-service api-docs endpoints proxied via the gateway).
                         .pathMatchers(
                                 "/swagger-ui/**", "/swagger-ui.html",
-                                "/v3/api-docs/**", "/webjars/**",
-                                "/api/*/v3/api-docs/**"
+                                "/v3/api-docs", "/v3/api-docs/**",
+                                "/webjars/**",
+                                "/api/*/v3/api-docs", "/api/*/v3/api-docs/**"
                         ).permitAll()
                         // Actuator
                         .pathMatchers("/actuator/**").permitAll()

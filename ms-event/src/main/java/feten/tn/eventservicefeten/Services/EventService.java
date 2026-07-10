@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class EventService {
@@ -21,6 +22,30 @@ public class EventService {
 
     public Event createEvent(Event event) {
         event.setAvailablePlaces(event.getMaxPlaces());
+        return eventRepository.save(event);
+    }
+
+    /**
+     * Atomically decrements {@code availablePlaces} for an event by the
+     * given amount (default 1). Throws when the event doesn't exist or when
+     * there aren't enough places left.
+     */
+    @Transactional
+    public Event decrementAvailablePlaces(Long eventId, int amount) {
+        Event event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new EventNotFoundException("Event not found: " + eventId));
+
+        Integer current = event.getAvailablePlaces();
+        if (current == null) {
+            current = event.getMaxPlaces() != null ? event.getMaxPlaces() : 0;
+        }
+        int delta = Math.max(1, amount);
+        if (current < delta) {
+            throw new IllegalStateException(
+                "Not enough available places for event " + eventId +
+                    " (have " + current + ", need " + delta + ")");
+        }
+        event.setAvailablePlaces(current - delta);
         return eventRepository.save(event);
     }
 

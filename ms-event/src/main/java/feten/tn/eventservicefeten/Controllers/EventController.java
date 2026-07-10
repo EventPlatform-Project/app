@@ -47,4 +47,15 @@ public class EventController {
     public List<Event> listByOrganizer(@RequestParam String organizer) {
         return eventService.getEventsByOrganizer(organizer);
     }
+
+    /**
+     * Atomically decrement {@code availablePlaces} for the given event.
+     * Called by ms-reservation right after a reservation is created (with a
+     * JWT propagated through the Feign interceptor).
+     */
+    @PatchMapping("/{id}/decrement-places")
+    public Event decrementPlaces(@PathVariable Long id,
+                                 @RequestParam(name = "by", defaultValue = "1") int by) {
+        return eventService.decrementAvailablePlaces(id, by);
+    }
 }

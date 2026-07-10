@@ -20,6 +20,14 @@ function buildMessage(event) {
       return `${displayName} updated their profile.`;
     case 'USER_DELETED':
       return `${displayName} left the platform.`;
+    case 'RESERVATION_CREATED':
+      // Prefer any pre-built message on the payload; otherwise synthesize.
+      if (event.message) return event.message;
+      if (event.eventId != null) {
+        return `Nouvelle réservation pour l'événement #${event.eventId}` +
+          (event.seatNumber ? ` (place ${event.seatNumber})` : '');
+      }
+      return 'Nouvelle réservation créée';
     default:
       return event.message || `New ${type} event`;
   }

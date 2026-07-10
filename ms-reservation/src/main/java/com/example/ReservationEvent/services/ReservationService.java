@@ -1,6 +1,7 @@
 package com.example.ReservationEvent.services;
 
 import com.example.ReservationEvent.clients.EventClient;
+import com.example.ReservationEvent.messaging.ReservationEventPublisher;
 import com.example.ReservationEvent.models.*;
 import com.example.ReservationEvent.repository.ReservationRepository;
 import jakarta.persistence.EntityNotFoundException;
@@ -17,6 +18,7 @@ public class ReservationService {
 
     private final ReservationRepository reservationRepository;
     private final EventClient eventClient;
+    private final ReservationEventPublisher eventPublisher;
 
     /**
      * Récupère TOUTES les réservations de la base (Postgres)
@@ -51,7 +53,25 @@ public class ReservationService {
                 .seatNumber(request.getSeatNumber())
                 .build();
 
-        return ReservationResponse.fromEntity(reservationRepository.save(reservation));
+        Reservation saved = reservationRepository.save(reservation);
+
+        // 3. Décrémenter les places disponibles de l'événement (best-effort).
+        //    En cas d'échec la réservation reste enregistrée mais le nombre
+        //    de places n'est pas mis à jour — l'opération sera loguée.
+        try {
+            eventClient.decrementPlaces(saved.getEventId(), 1);
+        } catch (Exception ex) {
+            // Ne pas casser la création de réservation pour un problème de mise à jour.
+            org.slf4j.LoggerFactory.getLogger(ReservationService.class)
+                .warn("Failed to decrement availablePlaces for event {}: {}",
+                    saved.getEventId(), ex.getMessage());
+        }
+
+        // 4. Publier l'événement RESERVATION_CREATED (fire-and-forget).
+        // If RabbitMQ is momentarily down, the reservation is still persisted.
+        eventPublisher.publishReservationCreated(saved);
+
+        return ReservationResponse.fromEntity(saved);
     }
 
     public List<ReservationResponse> getReservationsByUser(String userId) {

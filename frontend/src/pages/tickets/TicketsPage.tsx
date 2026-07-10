@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   Ticket as TicketIcon,
   Hash,
@@ -9,9 +9,13 @@ import {
   AlertCircle,
   RefreshCw,
   Plus,
+  Filter,
+  Calendar,
   X, // Pour fermer la modal
 } from 'lucide-react'
 import { ticketService, type TicketResponse } from '../../services/ticketService'
+import { eventService } from '@/services/eventService'
+import type { Event as EventItem } from '@/types/event'
 import { useAuth } from '@/auth/AuthContext'
 
 const STATUS_META: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
@@ -55,7 +59,11 @@ export default function TicketsPage() {
   const [tickets, setTickets] = useState<TicketResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  
+
+  // "Ticket by event" filter — populated from ms-event.
+  const [events, setEvents] = useState<EventItem[]>([])
+  const [selectedEventId, setSelectedEventId] = useState<number | 'ALL'>('ALL')
+
   // États pour la Modal
   const [selectedTicket, setSelectedTicket] = useState<TicketResponse | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -112,6 +120,59 @@ export default function TicketsPage() {
     loadTickets()
   }, [user?.id])
 
+  // Fetch event list once so the "Ticket by event" menu can label items.
+  useEffect(() => {
+    let cancelled = false
+    eventService
+      .getAllEvents()
+      .then((list) => {
+        if (!cancelled) setEvents(Array.isArray(list) ? list : [])
+      })
+      .catch((err) => {
+        console.warn('[tickets] failed to load events for filter', err)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Group tickets by eventId — used both for the "by event" dropdown menu
+  // and for the counts shown next to each entry.
+  const ticketsByEvent = useMemo(() => {
+    const map = new Map<number, TicketResponse[]>()
+    for (const t of tickets) {
+      const arr = map.get(t.eventId) ?? []
+      arr.push(t)
+      map.set(t.eventId, arr)
+    }
+    return map
+  }, [tickets])
+
+  // Menu options: every event the user has at least one ticket for,
+  // fallback-labeled with "#eventId" if the event details couldn't load.
+  const eventMenuItems = useMemo(() => {
+    const eventById = new Map<number, EventItem>()
+    for (const e of events) if (e.id != null) eventById.set(e.id as number, e)
+    return Array.from(ticketsByEvent.entries())
+      .map(([eventId, list]) => ({
+        eventId,
+        title: eventById.get(eventId)?.title ?? `Événement #${eventId}`,
+        count: list.length,
+      }))
+      .sort((a, b) => a.title.localeCompare(b.title))
+  }, [ticketsByEvent, events])
+
+  const visibleTickets = useMemo(() => {
+    if (selectedEventId === 'ALL') return tickets
+    return tickets.filter((t) => t.eventId === selectedEventId)
+  }, [tickets, selectedEventId])
+
+  const selectedEventTitle =
+    selectedEventId === 'ALL'
+      ? 'Tous les événements'
+      : events.find((e) => e.id === selectedEventId)?.title ??
+        `Événement #${selectedEventId}`
+
   return (
     <div className="p-6 min-h-screen relative">
       {/* --- HEADER --- */}
@@ -149,12 +210,56 @@ export default function TicketsPage() {
         </div>
       )}
 
+      {/* --- FILTER: Ticket by event --- */}
+      <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-2">
+        <div className="flex items-center gap-2 text-slate-400 text-xs">
+          <Filter size={14} />
+          Ticket par événement
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setSelectedEventId('ALL')}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+              selectedEventId === 'ALL'
+                ? 'bg-orbit-primary/20 text-orbit-primary-light border-orbit-primary/40'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border-transparent'
+            }`}
+          >
+            <Calendar size={12} /> Tous
+            <span className="ml-1 text-[10px] text-slate-500">({tickets.length})</span>
+          </button>
+          {eventMenuItems.map((item) => {
+            const active = selectedEventId === item.eventId
+            return (
+              <button
+                key={item.eventId}
+                type="button"
+                onClick={() => setSelectedEventId(item.eventId)}
+                title={item.title}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors max-w-[240px] ${
+                  active
+                    ? 'bg-orbit-primary/20 text-orbit-primary-light border-orbit-primary/40'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border-transparent'
+                }`}
+              >
+                <Calendar size={12} className="flex-shrink-0" />
+                <span className="truncate">{item.title}</span>
+                <span className="ml-1 text-[10px] text-slate-500 flex-shrink-0">
+                  ({item.count})
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
       {/* --- GRID DES TICKETS --- */}
       <div className="bg-slate-900/60 border border-orbit-border rounded-2xl overflow-hidden shadow-2xl">
         <div className="px-6 py-4 border-b border-orbit-border flex items-center gap-2">
           <TicketIcon size={16} className="text-orbit-primary-light" />
           <span className="font-semibold text-slate-200 text-sm">
-            Liste de mes tickets {loading ? '...' : `(${tickets.length})`}
+            {selectedEventTitle} {loading ? '...' : `(${visibleTickets.length})`}
           </span>
         </div>
 
@@ -163,14 +268,16 @@ export default function TicketsPage() {
             <RefreshCw size={24} className="text-orbit-primary animate-spin" />
             <p className="text-sm text-slate-500">Chargement...</p>
           </div>
-        ) : tickets.length === 0 ? (
+        ) : visibleTickets.length === 0 ? (
           <div className="py-20 text-center text-slate-500">
             <TicketIcon size={40} className="mx-auto mb-3 opacity-30" />
-            Aucun ticket. Cliquez sur "Ajouter un Ticket" pour tester.
+            {selectedEventId === 'ALL'
+              ? 'Aucun ticket. Cliquez sur "Ajouter un Ticket" pour tester.'
+              : `Aucun ticket pour ${selectedEventTitle}.`}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-6">
-            {tickets.map((ticket) => {
+            {visibleTickets.map((ticket) => {
               const meta = STATUS_META[ticket.status] || STATUS_META.VALID;
               return (
                 <div key={ticket.id} className="rounded-xl border border-orbit-border bg-slate-900/40 p-4 flex flex-col gap-3 group hover:border-orbit-primary/40 transition-all">

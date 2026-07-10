@@ -156,7 +156,7 @@ services:
     restart: on-failure
 
   ms-event:
-    build: ./ms-Event
+    build: ./ms-event
     container_name: ms-event
     depends_on:
       config-server:
@@ -176,7 +176,7 @@ services:
     restart: on-failure
 
   ms-reservation:
-    build: ./ms-Reservation
+    build: ./ms-reservation
     container_name: ms-reservation
     depends_on:
       config-server:
@@ -187,11 +187,17 @@ services:
         condition: service_started
       keycloak:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
     environment:
       CONFIG_SERVER_URL: http://config-server:8889
       EUREKA_HOST: discovery-server
       POSTGRES_HOST: postgres-db
       KEYCLOAK_HOST: keycloak
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest
     restart: on-failure
 
   ticket-service:
@@ -210,6 +216,22 @@ services:
       CONFIG_SERVER_URL: http://config-server:8889
       EUREKA_HOST: discovery-server
       POSTGRES_HOST: postgres-db
+      KEYCLOAK_HOST: keycloak
+    restart: on-failure
+
+  feedback-service:
+    build: ./feedback-service
+    container_name: feedback-service
+    depends_on:
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    environment:
+      CONFIG_SERVER_URL: http://config-server:8889
+      EUREKA_HOST: discovery-server
       KEYCLOAK_HOST: keycloak
     restart: on-failure
 

@@ -29,7 +29,7 @@ async function connectLoop() {
   while (!stopping) {
     try {
       await connect();
-      return; // connected + consuming; the 'close'/'error' handlers will retrigger this loop.
+      return;
     } catch (err) {
       console.error(
         `[rabbit] connection failed: ${err.message}. Retrying in ${rabbit.reconnectDelayMs}ms`
@@ -37,6 +37,24 @@ async function connectLoop() {
       await sleep(rabbit.reconnectDelayMs);
     }
   }
+}
+
+/**
+ * Full list of exchange/queue/routing bindings to consume. The first entry
+ * is the historical single binding (user.events); {@link env.rabbit.extraBindings}
+ * appends new ones (e.g. reservation.events) so we can consume every domain
+ * event through the same connection.
+ */
+function allBindings() {
+  return [
+    {
+      exchange: rabbit.exchange,
+      exchangeType: rabbit.exchangeType,
+      queue: rabbit.queue,
+      routingKey: rabbit.routingKey,
+    },
+    ...(Array.isArray(rabbit.extraBindings) ? rabbit.extraBindings : []),
+  ];
 }
 
 async function connect() {
@@ -58,41 +76,47 @@ async function connect() {
   channel = await connection.createChannel();
   await channel.prefetch(rabbit.prefetch);
 
-  await channel.assertExchange(rabbit.exchange, rabbit.exchangeType, {
-    durable: true,
-  });
-  await channel.assertQueue(rabbit.queue, { durable: true });
-  await channel.bindQueue(rabbit.queue, rabbit.exchange, rabbit.routingKey);
+  for (const b of allBindings()) {
+    await channel.assertExchange(b.exchange, b.exchangeType, { durable: true });
+    await channel.assertQueue(b.queue, { durable: true });
+    await channel.bindQueue(b.queue, b.exchange, b.routingKey);
 
-  console.log(
-    `[rabbit] connected. exchange="${rabbit.exchange}" (${rabbit.exchangeType}) ` +
-      `queue="${rabbit.queue}" routingKey="${rabbit.routingKey}"`
-  );
+    console.log(
+      `[rabbit] bound queue="${b.queue}" -> exchange="${b.exchange}" (${b.exchangeType}) ` +
+        `routingKey="${b.routingKey}"`
+    );
 
-  await channel.consume(
-    rabbit.queue,
-    async (msg) => {
-      if (!msg) return;
-      try {
-        const body = msg.content.toString('utf8');
-        const event = JSON.parse(body);
+    // Each binding gets its own consumer using the same channel.
+    // eslint-disable-next-line no-loop-func
+    await channel.consume(
+      b.queue,
+      async (msg) => {
+        if (!msg) return;
+        try {
+          const body = msg.content.toString('utf8');
+          const event = JSON.parse(body);
 
-        // Prefer the routing key as the event `type` when the payload
-        // doesn't carry it (defense in depth).
-        if (!event.type && msg.fields && msg.fields.routingKey) {
-          event.type = routingKeyToType(msg.fields.routingKey);
+          // Prefer the routing key as the event `type` when the payload
+          // doesn't carry it (defense in depth).
+          if (!event.type && msg.fields && msg.fields.routingKey) {
+            event.type = routingKeyToType(msg.fields.routingKey);
+          }
+
+          await notificationService.ingest(event);
+          channel.ack(msg);
+        } catch (err) {
+          console.error(
+            `[rabbit] failed to process message from ${b.queue}: ${err.message}`
+          );
+          // Don't requeue malformed messages to avoid infinite loops.
+          channel.nack(msg, false, false);
         }
+      },
+      { noAck: false }
+    );
+  }
 
-        await notificationService.ingest(event);
-        channel.ack(msg);
-      } catch (err) {
-        console.error('[rabbit] failed to process message:', err.message);
-        // Don't requeue malformed messages to avoid infinite loops.
-        channel.nack(msg, false, false);
-      }
-    },
-    { noAck: false }
-  );
+  console.log('[rabbit] all consumers ready');
 }
 
 function routingKeyToType(rk) {

@@ -61,6 +61,8 @@ const config = {
       ['RABBITMQ_URL', 'NOTIFICATION_RABBITMQ_URL'],
       `amqp://${rabbitUser}:${rabbitPass}@${rabbitHost}:${rabbitPort}`
     ),
+    // Historical single-exchange settings — retained so this service still
+    // consumes `user.events` for backward compatibility.
     exchange: firstEnv(
       ['RABBITMQ_EXCHANGE', 'NOTIFICATION_RABBITMQ_EXCHANGE'],
       'user.events'
@@ -85,6 +87,17 @@ const config = {
       ['RABBITMQ_RECONNECT_DELAY_MS', 'NOTIFICATION_RABBITMQ_RECONNECT_DELAY_MS'],
       5000
     ),
+    // Extra bindings to consume in addition to the primary one. Add here
+    // whenever a new microservice publishes a topic exchange we want to
+    // react to (e.g. reservation.events, ticket.events, ...).
+    extraBindings: [
+      {
+        exchange: 'reservation.events',
+        exchangeType: 'topic',
+        queue: 'notification.reservation.events',
+        routingKey: 'reservation.#',
+      },
+    ],
   },
 
   // History cap for GET /api/notifications
