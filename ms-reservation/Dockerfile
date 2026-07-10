@@ -1,12 +1,21 @@
-# 1. On part d'une image Java légère (Alpine)
-FROM eclipse-temurin:17-jdk-alpine
+# =====================================================================
+# Multi-stage Dockerfile for ms-reservation (reservations service).
+# =====================================================================
 
-# 2. On définit le dossier de travail dans le conteneur
+# ---- Build stage ----
+FROM maven:3.9-eclipse-temurin-17 AS build
+WORKDIR /workspace
+
+COPY pom.xml ./
+RUN mvn -B -q -e -DskipTests dependency:go-offline
+
+COPY src ./src
+RUN mvn -B -q -e -DskipTests package \
+ && cp target/*.jar /workspace/app.jar
+
+# ---- Runtime stage ----
+FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
+COPY --from=build /workspace/app.jar app.jar
 
-# 3. On COPIE le fichier JAR que tu as généré avec IntelliJ
-# Le "*" permet de prendre le JAR quel que soit son nom exact (version, etc.)
-COPY target/*.jar app.jar
-
-# 4. On dit à Docker de lancer le JAR au démarrage
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]

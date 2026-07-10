@@ -1,12 +1,28 @@
-# 1. On part d'une image Java légère (Alpine)
-FROM eclipse-temurin:17-jdk-alpine
+# =====================================================================
+# Multi-stage Dockerfile for users-service.
+# Stage 1 builds the fat jar with Maven (no local install required).
+# Stage 2 keeps only the JRE + the jar for a small runtime image.
+# =====================================================================
 
-# 2. On définit le dossier de travail dans le conteneur
+# ---- Build stage ----
+FROM maven:3.9-eclipse-temurin-17 AS build
+WORKDIR /workspace
+
+# Cache dependencies first so code-only changes don't re-download everything.
+COPY pom.xml ./
+RUN mvn -B -q -e -DskipTests dependency:go-offline
+
+# Now bring in the sources and package.
+COPY src ./src
+RUN mvn -B -q -e -DskipTests package \
+ && cp target/*.jar /workspace/app.jar
+
+# ---- Runtime stage ----
+FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
+COPY --from=build /workspace/app.jar app.jar
 
-# 3. On COPIE le fichier JAR que tu as généré avec IntelliJ
-# Le "*" permet de prendre le JAR quel que soit son nom exact (version, etc.)
-COPY target/*.jar app.jar
+# Users-service listens on 7890 (see config-repo/users-service.properties).
+EXPOSE 7890
 
-# 4. On dit à Docker de lancer le JAR au démarrage
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]
