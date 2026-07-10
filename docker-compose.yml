@@ -38,10 +38,16 @@ services:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      # `rabbitmq-diagnostics ping` was flaky on the 3-management image and
+      # left the container marked (unhealthy) even after the broker had
+      # already accepted connections. Instead, poll the management HTTP
+      # endpoint — the broker is only reachable via AMQP once management
+      # returns 200. `wget -q --spider` is preinstalled in the image.
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:15672 || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 30
+      start_period: 90s
     restart: always
 
   # --- KEYCLOAK ---
@@ -73,6 +79,16 @@ services:
       SPRING_PROFILES_ACTIVE: native
       EUREKA_HOST: discovery-server
       CONFIG_LOCATION: file:/config-repo
+    healthcheck:
+      # Once /actuator/health returns 200, the server is fully ready to
+      # serve property sources. Wget is preinstalled in eclipse-temurin.
+      test:
+        - "CMD-SHELL"
+        - "wget -qO- http://localhost:8889/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
     restart: always
 
   discovery-server:
@@ -81,21 +97,38 @@ services:
     ports:
       - "8761:8761"
     depends_on:
-      - config-server
+      config-server:
+        condition: service_healthy
     environment:
       EUREKA_HOSTNAME: discovery-server
       CONFIG_SERVER_URL: http://config-server:8889
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "wget -qO- http://localhost:8761/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
     restart: always
 
   # --- MICROSERVICES ---
+  # All dependents wait for config-server AND discovery-server to be *healthy*
+  # (not just started) so their boot logs are clean instead of full of
+  # ECONNREFUSED retries.
+
   api-gateway:
     build: ./api-gateway
     container_name: api-gateway
     ports:
       - "8888:8888"
     depends_on:
-      - discovery-server
-      - keycloak
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
     environment:
       CONFIG_SERVER_URL: http://config-server:8889
       EUREKA_HOST: discovery-server
@@ -106,10 +139,16 @@ services:
     build: ./users
     container_name: users-service
     depends_on:
-      - discovery-server
-      - postgres-db
-      - keycloak
-      - rabbitmq
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      postgres-db:
+        condition: service_started
+      keycloak:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
     environment:
       CONFIG_SERVER_URL: http://config-server:8889
       EUREKA_HOST: discovery-server
@@ -125,9 +164,14 @@ services:
     build: ./ms-Event
     container_name: ms-event
     depends_on:
-      - discovery-server
-      - mysql-db
-      - keycloak
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      mysql-db:
+        condition: service_started
+      keycloak:
+        condition: service_started
     environment:
       CONFIG_SERVER_URL: http://config-server:8889
       EUREKA_HOST: discovery-server
@@ -140,9 +184,14 @@ services:
     build: ./ms-Reservation
     container_name: ms-reservation
     depends_on:
-      - discovery-server
-      - postgres-db
-      - keycloak
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      postgres-db:
+        condition: service_started
+      keycloak:
+        condition: service_started
     environment:
       CONFIG_SERVER_URL: http://config-server:8889
       EUREKA_HOST: discovery-server
@@ -154,9 +203,14 @@ services:
     build: ./ticket-service
     container_name: ticket-service
     depends_on:
-      - discovery-server
-      - postgres-db
-      - keycloak
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      postgres-db:
+        condition: service_started
+      keycloak:
+        condition: service_started
     environment:
       CONFIG_SERVER_URL: http://config-server:8889
       EUREKA_HOST: discovery-server
@@ -168,10 +222,14 @@ services:
     build: ./notification-service
     container_name: notification-service
     depends_on:
-      - config-server
-      - discovery-server
-      - mongodb-container
-      - rabbitmq
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      mongodb-container:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
     environment:
       # Bootstrap: only these are set here; everything else comes from
       # config-server (config-repo/notification-service.properties).
