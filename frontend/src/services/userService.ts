@@ -43,6 +43,19 @@ export interface UserUpdateRequest {
   lastName?: string
 }
 
+/**
+ * Payload accepted by the admin-only user creation endpoint
+ * (POST /api/users). Mirrors the backend RegisterRequest DTO.
+ */
+export interface AdminCreateUserRequest {
+  username: string
+  email?: string
+  password: string
+  firstName?: string
+  lastName?: string
+  role: UserRole
+}
+
 const USERS = '/api/users'
 
 export const userService = {
@@ -60,6 +73,17 @@ export const userService = {
   /** Admin-only: list all users. */
   getAllUsers: async (): Promise<UserProfile[]> => {
     const { data } = await api.get<UserProfile[]>(USERS)
+    return data
+  },
+
+  /**
+   * Admin-only: create a new user with a specific role.
+   * Reuses the same server flow as public registration but is guarded by
+   * the ADMINISTRATEUR realm role. The backend also creates the account in
+   * Keycloak and publishes a USER_CREATED event to RabbitMQ.
+   */
+  createUser: async (body: AdminCreateUserRequest): Promise<UserProfile> => {
+    const { data } = await api.post<UserProfile>(USERS, body)
     return data
   },
 

@@ -1,12 +1,14 @@
 package com.auth.users.controllers;
 
 import com.auth.users.dtos.ChangeRoleRequest;
+import com.auth.users.dtos.RegisterRequest;
 import com.auth.users.dtos.UserProfileResponse;
 import com.auth.users.dtos.UserSummaryResponse;
 import com.auth.users.dtos.UserUpdateRequest;
 import com.auth.users.dtos.UserWithEventsResponse;
 import com.auth.users.services.UserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -49,6 +51,31 @@ public class UserController {
     @PreAuthorize("hasRole('ADMINISTRATEUR')")
     public ResponseEntity<List<UserProfileResponse>> getAllUsers() {
         return ResponseEntity.ok(userService.getAllUsers());
+    }
+
+    /**
+     * Admin-only: create a new user with a specific role.
+     * <p>
+     * Delegates to the same {@link UserService#registerUser} flow used by
+     * public self-registration ({@code POST /api/auth/register}), which:
+     *   <ul>
+     *     <li>creates the user in Keycloak with the requested realm role,</li>
+     *     <li>persists a local mirror record,</li>
+     *     <li>publishes a {@code USER_CREATED} event to RabbitMQ.</li>
+     *   </ul>
+     * The difference with {@code /api/auth/register} is that this endpoint is
+     * guarded by {@code ADMINISTRATEUR} and is intended for the admin panel.
+     */
+    @PostMapping
+    @PreAuthorize("hasRole('ADMINISTRATEUR')")
+    public ResponseEntity<UserProfileResponse> adminCreateUser(@RequestBody RegisterRequest body) {
+        if (body == null
+                || body.getUsername() == null || body.getUsername().isBlank()
+                || body.getPassword() == null || body.getPassword().isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+        UserProfileResponse created = userService.registerUser(body);
+        return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
     /**

@@ -13,10 +13,18 @@ import {
   UserMinus,
   Check,
   UserCog,
+  UserPlus,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button, Input } from '@/components/ui'
-import { userService, type UserProfile, type UserRole } from '@/services/userService'
+import {
+  userService,
+  type AdminCreateUserRequest,
+  type UserProfile,
+  type UserRole,
+} from '@/services/userService'
 import { useAuth } from '@/auth/AuthContext'
 
 const ROLE_BADGE: Record<UserRole, string> = {
@@ -42,6 +50,9 @@ export default function AdminPage() {
   const [toDelete, setToDelete] = useState<UserProfile | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  // Create user modal state
+  const [showCreate, setShowCreate] = useState(false)
 
   // Inline role-edit state (keyed by user id).
   //   pendingRole[id]    = the role the admin has picked in the dropdown
@@ -187,16 +198,27 @@ export default function AdminPage() {
             Gestion des utilisateurs. Réservé aux administrateurs.
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="md"
-          onClick={fetchUsers}
-          disabled={loading}
-          icon={<RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />}
-          iconPosition="left"
-        >
-          Actualiser
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="primary"
+            size="md"
+            onClick={() => setShowCreate(true)}
+            icon={<UserPlus className="w-4 h-4" />}
+            iconPosition="left"
+          >
+            Créer un utilisateur
+          </Button>
+          <Button
+            variant="outline"
+            size="md"
+            onClick={fetchUsers}
+            disabled={loading}
+            icon={<RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />}
+            iconPosition="left"
+          >
+            Actualiser
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -355,6 +377,21 @@ export default function AdminPage() {
                 setToDelete(null)
                 setDeleteError(null)
               }
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Create user modal */}
+      <AnimatePresence>
+        {showCreate && (
+          <CreateUserModal
+            onClose={() => setShowCreate(false)}
+            onCreated={(u) => {
+              // Add to the top of the local list — the USER_CREATED SSE event
+              // will also fire; the RoleEditor de-dupes on id.
+              setUsers((prev) => [u, ...prev.filter((x) => x.id !== u.id)])
+              setShowCreate(false)
             }}
           />
         )}
@@ -609,6 +646,234 @@ function DeleteModal({
             </button>
           </div>
         </div>
+      </motion.div>
+    </>
+  )
+}
+
+// ─── Create user modal ───────────────────────────────────────────────────────
+
+function CreateUserModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void
+  onCreated: (u: UserProfile) => void
+}) {
+  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
+  const [role, setRole] = useState<UserRole>('PARTICIPANT')
+  const [showPassword, setShowPassword] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const canSubmit =
+    username.trim().length > 0 &&
+    password.trim().length >= 4 &&
+    !submitting
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!canSubmit) return
+    setError(null)
+    setSubmitting(true)
+    try {
+      const body: AdminCreateUserRequest = {
+        username: username.trim(),
+        password,
+        role,
+      }
+      const trimmedEmail = email.trim()
+      if (trimmedEmail) body.email = trimmedEmail
+      const trimmedFirst = firstName.trim()
+      if (trimmedFirst) body.firstName = trimmedFirst
+      const trimmedLast = lastName.trim()
+      if (trimmedLast) body.lastName = trimmedLast
+
+      const created = await userService.createUser(body)
+      onCreated(created)
+    } catch (e) {
+      const anyErr = e as {
+        response?: { status?: number; data?: { message?: string; error?: string } }
+      }
+      const status = anyErr?.response?.status
+      const serverMsg =
+        anyErr?.response?.data?.message ?? anyErr?.response?.data?.error
+      if (status === 400) {
+        setError(serverMsg ?? "Requête invalide. Vérifiez les champs.")
+      } else if (status === 403) {
+        setError("Accès refusé : rôle ADMINISTRATEUR requis.")
+      } else if (status === 409) {
+        setError("Un utilisateur avec ce nom ou cet email existe déjà.")
+      } else {
+        setError(serverMsg ?? "La création a échoué. Réessayez.")
+      }
+      console.error(e)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={() => !submitting && onClose()}
+        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50"
+      />
+      <motion.div
+        initial={{ opacity: 0, y: 12, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 12, scale: 0.96 }}
+        transition={{ duration: 0.18 }}
+        className="fixed inset-0 z-[60] flex items-center justify-center p-4 pointer-events-none"
+      >
+        <form
+          onSubmit={handleSubmit}
+          className="pointer-events-auto w-full max-w-lg bg-orbit-surface2 border border-orbit-border rounded-2xl shadow-2xl overflow-hidden"
+        >
+          {/* Header */}
+          <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-4">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-orbit-primary/15 text-orbit-primary-light flex items-center justify-center">
+                <UserPlus className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-semibold text-slate-100">
+                  Créer un utilisateur
+                </h2>
+                <p className="text-sm text-slate-400 mt-0.5">
+                  Le compte sera créé dans Keycloak et dans la base locale.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={submitting}
+              className="text-slate-500 hover:text-slate-200 disabled:opacity-40 -mr-1 p-1"
+              aria-label="Fermer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Body */}
+          <div className="px-5 pb-4 space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <Input
+                label="Nom d'utilisateur *"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="jdoe"
+                autoFocus
+                required
+              />
+              <Input
+                label="Email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="jdoe@example.com"
+              />
+              <Input
+                label="Prénom"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                placeholder="John"
+              />
+              <Input
+                label="Nom"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                placeholder="Doe"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                Mot de passe *
+              </label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  minLength={4}
+                  required
+                  placeholder="Au moins 4 caractères"
+                  className="w-full h-9 rounded-lg border border-orbit-border bg-orbit-surface2 px-3 pr-9 text-sm text-slate-200 outline-none focus:border-orbit-primary focus:ring-1 focus:ring-orbit-primary/30"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((s) => !s)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-200 p-1"
+                  aria-label={showPassword ? 'Masquer' : 'Afficher'}
+                >
+                  {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">Rôle *</label>
+              <select
+                value={role}
+                onChange={(e) => setRole(e.target.value as UserRole)}
+                className="w-full h-9 rounded-lg border border-orbit-border bg-orbit-surface2 px-3 text-sm text-slate-200 outline-none focus:border-orbit-primary focus:ring-1 focus:ring-orbit-primary/30"
+              >
+                <option value="PARTICIPANT">PARTICIPANT</option>
+                <option value="ORGANISATEUR">ORGANISATEUR</option>
+                <option value="ADMINISTRATEUR">ADMINISTRATEUR</option>
+              </select>
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                Le rôle est appliqué immédiatement dans Keycloak (realm role) et
+                dans la base locale.
+              </p>
+            </div>
+
+            {error && (
+              <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 text-red-300 rounded-lg p-2.5 text-xs">
+                <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-orbit-border bg-orbit-surface3/40">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={submitting}
+              className="px-3 py-1.5 rounded-lg text-sm font-medium text-slate-300 hover:text-slate-100 hover:bg-white/5 disabled:opacity-40"
+            >
+              Annuler
+            </button>
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-orbit-primary/20 border border-orbit-primary/40 text-orbit-primary-light hover:bg-orbit-primary/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Création…
+                </>
+              ) : (
+                <>
+                  <UserPlus className="w-3.5 h-3.5" />
+                  Créer l'utilisateur
+                </>
+              )}
+            </button>
+          </div>
+        </form>
       </motion.div>
     </>
   )
